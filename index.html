@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Beginner Canvas Platform Fighter</title>
+  <style>
+    /* Basic page styling */
+    body {
+      margin: 0;
+      background: #20242b;
+      color: white;
+      font-family: Arial, sans-serif;
+      text-align: center;
+    }
+
+    h1 {
+      margin: 14px 0 6px;
+    }
+
+    p {
+      margin: 4px 0 12px;
+      color: #d7d7d7;
+    }
+
+    canvas {
+      background: #87c7ff;
+      border: 4px solid white;
+      display: block;
+      margin: 0 auto;
+    }
+
+    button {
+      margin-top: 12px;
+      padding: 10px 16px;
+      font-size: 16px;
+      cursor: pointer;
+      display: none; /* Hidden until the enemy is defeated */
+    }
+  </style>
+</head>
+<body>
+  <h1>2D Platform Fighter Prototype</h1>
+  <p>Controls: A/D = move, W = jump, J = attack</p>
+
+  <canvas id="gameCanvas" width="900" height="500"></canvas>
+  <button id="restartButton">Restart</button>
+
+  <script>
+    /*
+      ============================================================
+      BEGINNER-FRIENDLY CANVAS PLATFORM FIGHTER
+      ============================================================
+
+      This entire game is inside one HTML file.
+
+      Main ideas:
+      - The canvas is where we draw the game.
+      - The player and enemy are rectangles.
+      - Every frame, we:
+        1. Read keyboard input
+        2. Apply movement and gravity
+        3. Check platform collisions
+        4. Check attack hitbox collisions
+        5. Draw everything
+    */
+
+    // Get the canvas and its drawing tools
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // Restart button
+    const restartButton = document.getElementById("restartButton");
+
+    // Keep track of keyboard keys
+    const keys = {};
+
+    // Listen for key presses
+    window.addEventListener("keydown", function(event) {
+      keys[event.key.toLowerCase()] = true;
+    });
+
+    // Listen for key releases
+    window.addEventListener("keyup", function(event) {
+      keys[event.key.toLowerCase()] = false;
+    });
+
+    // A helper function for rectangle collision
+    function rectanglesOverlap(a, b) {
+      return (
+        a.x < b.x + b.width &&
+        a.x + a.width > b.x &&
+        a.y < b.y + b.height &&
+        a.y + a.height > b.y
+      );
+    }
+
+    // Game physics settings
+    const gravity = 0.7;
+    const friction = 0.8;
+
+    // Platforms in the arena
+    // Each platform is a rectangle the player/enemy can stand on.
+    const platforms = [
+      // Main floor
+      { x: 0, y: 450, width: 900, height: 50 },
+
+      // Left floating platform
+      { x: 150, y: 320, width: 220, height: 22 },
+
+      // Right floating platform
+      { x: 530, y: 260, width: 220, height: 22 }
+    ];
+
+    // Player object
+    const player = {
+      x: 100,
+      y: 350,
+      width: 40,
+      height: 60,
+      color: "#2f80ed",
+
+      // Velocity means speed in a direction
+      vx: 0,
+      vy: 0,
+
+      speed: 0.8,
+      maxSpeed: 6,
+      jumpPower: -14,
+
+      onGround: false,
+      facing: 1, // 1 means right, -1 means left
+
+      health: 100,
+      maxHealth: 100,
+
+      // Attack info
+      attacking: false,
+      attackTimer: 0,
+      attackDuration: 12,
+      attackCooldown: 0,
+      attackCooldownMax: 25,
+      hasHitEnemyThisAttack: false
+    };
+
+    // Training dummy enemy
+    const enemy = {
+      x: 690,
+      y: 350,
+      width: 45,
+      height: 65,
+      color: "#e74c3c",
+
+      vx: 0,
+      vy: 0,
+
+      onGround: false,
+      health: 100,
+      maxHealth: 100,
+
+      defeated: false
+    };
+
+    // Draw a rectangle with a black outline
+    function drawRect(obj) {
+      ctx.fillStyle = obj.color;
+      ctx.fillRect(obj.x, obj.y, obj.width, obj.height);
+
+      ctx.strokeStyle = "black";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(obj.x, obj.y, obj.width, obj.height);
+    }
+
+    // Draw a health bar
+    function drawHealthBar(x, y, width, height, currentHealth, maxHealth, label) {
+      // Health percentage from 0 to 1
+      const healthPercent = Math.max(currentHealth / maxHealth, 0);
+
+      // Background
+      ctx.fillStyle = "#333";
+      ctx.fillRect(x, y, width, height);
+
+      // Health amount
+      ctx.fillStyle = "#2ecc71";
+      ctx.fillRect(x, y, width * healthPercent, height);
+
+      // Border
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x, y, width, height);
+
+      // Label
+      ctx.fillStyle = "white";
+      ctx.font = "16px Arial";
+      ctx.fillText(label + ": " + Math.max(currentHealth, 0), x, y - 6);
+    }
+
+    // Move an object and make it collide with platforms
+    function applyPhysicsAndPlatformCollision(obj) {
+      // Apply gravity
+      obj.vy += gravity;
+
+      // Move horizontally
+      obj.x += obj.vx;
+
+      // Stop objects from leaving the screen horizontally
+      if (obj.x < 0) {
+        obj.x = 0;
+        obj.vx = 0;
+      }
+
+      if (obj.x + obj.width > canvas.width) {
+        obj.x = canvas.width - obj.width;
+        obj.vx = 0;
+      }
+
+      // Move vertically
+      obj.y += obj.vy;
+
+      // Assume object is in the air until we prove it is standing on something
+      obj.onGround = false;
+
+      // Check collision with every platform
+      for (let platform of platforms) {
+        if (rectanglesOverlap(obj, platform)) {
+          // If falling down, land on top of the platform
+          if (obj.vy > 0) {
+            obj.y = platform.y - obj.height;
+            obj.vy = 0;
+            obj.onGround = true;
+          }
+        }
+      }
+
+      // If object somehow falls below the canvas, reset it to the floor area
+      if (obj.y > canvas.height + 200) {
+        obj.x = 100;
+        obj.y = 350;
+        obj.vx = 0;
+        obj.vy = 0;
+      }
+    }
+
+    // Create the player's attack hitbox
+    function getAttackHitbox() {
+      const hitboxWidth = 55;
+      const hitboxHeight = 35;
+
+      return {
+        x: player.facing === 1
+          ? player.x + player.width
+          : player.x - hitboxWidth,
+        y: player.y + 15,
+        width: hitboxWidth,
+        height: hitboxHeight
+      };
+    }
+
+    // Update player controls
+    function updatePlayer() {
+      // Move left
+      if (keys["a"]) {
+        player.vx -= player.speed;
+        player.facing = -1;
+      }
+
+      // Move right
+      if (keys["d"]) {
+        player.vx += player.speed;
+        player.facing = 1;
+      }
+
+      // Limit horizontal speed
+      if (player.vx > player.maxSpeed) player.vx = player.maxSpeed;
+      if (player.vx < -player.maxSpeed) player.vx = -player.maxSpeed;
+
+      // Jump only if on the ground
+      if (keys["w"] && player.onGround) {
+        player.vy = player.jumpPower;
+        player.onGround = false;
+      }
+
+      // Apply friction so the player slows down naturally
+      player.vx *= friction;
+
+      // Attack with J
+      if (keys["j"] && player.attackCooldown <= 0 && !player.attacking) {
+        player.attacking = true;
+        player.attackTimer = player.attackDuration;
+        player.attackCooldown = player.attackCooldownMax;
+        player.hasHitEnemyThisAttack = false;
+      }
+
+      // Count down attack timer
+      if (player.attacking) {
+        player.attackTimer--;
+
+        if (player.attackTimer <= 0) {
+          player.attacking = false;
+        }
+      }
+
+      // Count down attack cooldown
+      if (player.attackCooldown > 0) {
+        player.attackCooldown--;
+      }
+
+      // Apply gravity and platform collision
+      applyPhysicsAndPlatformCollision(player);
+    }
+
+    // Update enemy physics
+    function updateEnemy() {
+      if (enemy.defeated) return;
+
+      // Dummy slows down after knockback
+      enemy.vx *= 0.92;
+
+      // Apply physics and platform collision
+      applyPhysicsAndPlatformCollision(enemy);
+
+      // If enemy health reaches 0, mark defeated
+      if (enemy.health <= 0) {
+        enemy.health = 0;
+        enemy.defeated = true;
+        restartButton.style.display = "inline-block";
+      }
+    }
+
+    // Check if the player's attack hits the enemy
+    function checkAttackCollision() {
+      if (!player.attacking || enemy.defeated) return;
+
+      const hitbox = getAttackHitbox();
+
+      // Only damage enemy once per attack
+      if (
+        rectanglesOverlap(hitbox, enemy) &&
+        !player.hasHitEnemyThisAttack
+      ) {
+        enemy.health -= 20;
+
+        // Knockback pushes enemy in the direction the player is facing
+        enemy.vx = 10 * player.facing;
+        enemy.vy = -5;
+
+        player.hasHitEnemyThisAttack = true;
+      }
+    }
+
+    // Draw the attack hitbox
+    function drawAttackHitbox() {
+      if (!player.attacking) return;
+
+      const hitbox = getAttackHitbox();
+
+      ctx.fillStyle = "rgba(255, 255, 0, 0.55)";
+      ctx.fillRect(hitbox.x, hitbox.y, hitbox.width, hitbox.height);
+
+      ctx.strokeStyle = "orange";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(hitbox.x, hitbox.y, hitbox.width, hitbox.height);
+    }
+
+    // Draw the arena platforms
+    function drawPlatforms() {
+      for (let platform of platforms) {
+        ctx.fillStyle = "#5b3b22";
+        ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+
+        ctx.fillStyle = "#3fa34d";
+        ctx.fillRect(platform.x, platform.y, platform.width, 6);
+
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(platform.x, platform.y, platform.width, platform.height);
+      }
+    }
+
+    // Draw simple background
+    function drawBackground() {
+      // Sky
+      ctx.fillStyle = "#87c7ff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Sun
+      ctx.fillStyle = "#ffd166";
+      ctx.beginPath();
+      ctx.arc(790, 80, 35, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Background hills
+      ctx.fillStyle = "#6fcf97";
+      ctx.beginPath();
+      ctx.arc(180, 470, 160, Math.PI, 0);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(600, 470, 220, Math.PI, 0);
+      ctx.fill();
+    }
+
+    // Draw all game objects
+    function draw() {
+      drawBackground();
+      drawPlatforms();
+
+      drawAttackHitbox();
+
+      drawRect(player);
+
+      if (!enemy.defeated) {
+        drawRect(enemy);
+      } else {
+        ctx.fillStyle = "white";
+        ctx.font = "34px Arial";
+        ctx.fillText("Training dummy defeated!", 285, 210);
+      }
+
+      // Draw direction indicator on player
+      ctx.fillStyle = "white";
+      ctx.font = "20px Arial";
+      ctx.fillText(player.facing === 1 ? ">" : "<", player.x + 14, player.y + 35);
+
+      // Health bars
+      drawHealthBar(30, 35, 250, 22, player.health, player.maxHealth, "Player");
+      drawHealthBar(620, 35, 250, 22, enemy.health, enemy.maxHealth, "Enemy");
+
+      // Small help text
+      ctx.fillStyle = "black";
+      ctx.font = "16px Arial";
+      ctx.fillText("Tip: Press J near the enemy. The yellow box is your attack hitbox.", 250, 485);
+    }
+
+    // Main game loop
+    function gameLoop() {
+      updatePlayer();
+      updateEnemy();
+      checkAttackCollision();
+      draw();
+
+      // requestAnimationFrame runs this function again before the next screen refresh
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Reset the game when restart is clicked
+    function restartGame() {
+      player.x = 100;
+      player.y = 350;
+      player.vx = 0;
+      player.vy = 0;
+      player.health = player.maxHealth;
+      player.facing = 1;
+      player.attacking = false;
+      player.attackTimer = 0;
+      player.attackCooldown = 0;
+      player.hasHitEnemyThisAttack = false;
+
+      enemy.x = 690;
+      enemy.y = 350;
+      enemy.vx = 0;
+      enemy.vy = 0;
+      enemy.health = enemy.maxHealth;
+      enemy.defeated = false;
+
+      restartButton.style.display = "none";
+    }
+
+    restartButton.addEventListener("click", restartGame);
+
+    // Start the game
+    gameLoop();
+  </script>
+</body>
+</html>
