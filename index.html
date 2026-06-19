@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Platform Fighter Prototype V4</title>
+  <title>Platform Fighter Prototype V5</title>
   <style>
     body { margin:0; background:#171b22; color:white; font-family:Arial,sans-serif; text-align:center; }
     h1 { margin:12px 0 4px; }
@@ -12,36 +12,45 @@
   </style>
 </head>
 <body>
-  <h1>Scrolling Platform Fighter V4</h1>
-  <p>A/D move | W jump | J melee | U alt melee | tap K projectile | hold K beam</p>
+  <h1>Scrolling Platform Fighter V5</h1>
+  <p>A/D move | W jump | J melee | U special melee | tap K projectile | hold K beam | E talk/open</p>
   <canvas id="gameCanvas" width="900" height="500"></canvas>
   <button id="restartButton">Restart Game</button>
 
   <script>
     /*
-      V4 upgrade notes:
-      - Added an ability selection screen.
-      - Tap K for a projectile.
-      - Hold K to turn the same ranged move into a beam variant.
-      - Added actual beam visuals: core, glow, particles, screen shake.
-      - Added more player moves: normal melee, alternate melee, ranged, ranged variant.
-      - Enemies have less health now.
-      - Player regeneration is stronger.
+      V5 goals:
+      - Each selected character/build now feels different.
+      - J and U are no longer all the same.
+      - Control Caster J is a far-forward hitbox.
+      - Control Caster U creates a long-range rig at the mouse pointer.
+      - K projectile and hold-K beam differ by color, damage, range, and width.
+      - NPC gives you a key after 3 kills.
+      - Door at the end only opens if you have the key AND all enemies are dead.
     */
 
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
     const restartButton = document.getElementById("restartButton");
     const keys = {};
+    const mouse = { x: 450, y: 250, worldX: 450, worldY: 250 };
+
     window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
     window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+    canvas.addEventListener("mousemove", e => {
+      const r = canvas.getBoundingClientRect();
+      mouse.x = e.clientX - r.left;
+      mouse.y = e.clientY - r.top;
+      mouse.worldX = mouse.x + cameraX;
+      mouse.worldY = mouse.y;
+    });
 
     const world = { width: 3800, height: 500 };
     const gravity = 0.72;
     const friction = 0.84;
     let cameraX = 0;
     let gameState = "loading";
-    let loadingTimer = 80;
+    let loadingTimer = 70;
     let levelTimer = 0;
     let message = "";
     let respawnTimer = 0;
@@ -52,77 +61,65 @@
     let bossStarted = false;
     let lastKDown = false;
     let lastUDown = false;
+    let lastEDown = false;
     let kHeldFrames = 0;
     let beamActive = false;
     let beamTick = 0;
     let screenShake = 0;
     let selectedAbility = "basic";
+    let enemyKills = 0;
+    let hasKey = false;
+    let npcGaveKey = false;
+    let doorOpen = false;
+    let speech = "Find the Guide halfway through the map.";
+    let speechTimer = 240;
 
     const abilitySets = {
       basic: {
-        name: "Basic Fighter",
-        desc: "Balanced slash, quick projectile, steady beam.",
-        meleeName: "Frontal Slash",
-        altName: "Rising Uppercut",
-        projectileName: "Spirit Bolt",
-        beamName: "Focused Beam",
-        meleeDamage: 24,
-        altDamage: 18,
-        projectileDamage: 15,
-        beamDamage: 5,
-        beamCost: 0.85,
-        beamWidth: 42,
-        projectileCount: 1
+        name: "Basic Fighter", color: "#2f80ed", aura: "#00f5d4",
+        desc: "Simple forward slash, surround burst, balanced bolt and beam.",
+        jName: "Forward Slash", uName: "Surround Burst", kName: "Blue Bolt", beamName: "Balanced Beam",
+        jType: "forward", uType: "surround",
+        meleeDamage: 24, altDamage: 17,
+        projectileColor: "#00f5d4", projectileDamage: 15, projectileSpeed: 11, projectileSize: 18, projectileRange: 750, projectileCount: 1,
+        beamColor: "#00f5d4", beamCore: "#ffffff", beamDamage: 5, beamCost: 0.85, beamWidth: 42, beamRange: 700
       },
       burst: {
-        name: "Burst Striker",
-        desc: "Short range, more aggressive damage, wider beam.",
-        meleeName: "Dash Slash",
-        altName: "Ground Slam",
-        projectileName: "Burst Shot",
-        beamName: "Burst Beam",
-        meleeDamage: 29,
-        altDamage: 24,
-        projectileDamage: 18,
-        beamDamage: 6,
-        beamCost: 1.15,
-        beamWidth: 56,
-        projectileCount: 1
+        name: "Burst Striker", color: "#ff4d6d", aura: "#ffbe0b",
+        desc: "Aggressive red fighter: short heavy projectile, huge wide beam.",
+        jName: "Heavy Forward Cleave", uName: "Explosive Surround Slam", kName: "Red Bomb Shot", beamName: "Wide Burst Beam",
+        jType: "forwardHeavy", uType: "surroundBig",
+        meleeDamage: 31, altDamage: 25,
+        projectileColor: "#ff4d6d", projectileDamage: 23, projectileSpeed: 8, projectileSize: 28, projectileRange: 430, projectileCount: 1,
+        beamColor: "#ff4d6d", beamCore: "#ffe66d", beamDamage: 7, beamCost: 1.25, beamWidth: 72, beamRange: 470
       },
       control: {
-        name: "Control Caster",
-        desc: "Safer range, weaker melee, piercing beam style.",
-        meleeName: "Wide Guard Slash",
-        altName: "Repel Pulse",
-        projectileName: "Piercing Spark",
-        beamName: "Thin Piercing Beam",
-        meleeDamage: 18,
-        altDamage: 14,
-        projectileDamage: 13,
-        beamDamage: 4,
-        beamCost: 0.65,
-        beamWidth: 30,
-        projectileCount: 2
+        name: "Control Caster", color: "#8338ec", aura: "#b8f2ff",
+        desc: "Long-range control: far-forward J and a mouse-pointer rig with U.",
+        jName: "Far Puppet Stab", uName: "Mouse Rig Snare", kName: "Twin Violet Needles", beamName: "Thin Piercing Ray",
+        jType: "farForward", uType: "mouseRig",
+        meleeDamage: 19, altDamage: 22,
+        projectileColor: "#b8f2ff", projectileDamage: 11, projectileSpeed: 14, projectileSize: 13, projectileRange: 950, projectileCount: 2,
+        beamColor: "#b8f2ff", beamCore: "#8338ec", beamDamage: 4, beamCost: 0.55, beamWidth: 24, beamRange: 950
       }
     };
 
     const platforms = [
       { x:0, y:450, width:3800, height:50 },
-      { x:180, y:330, width:260, height:24 },
-      { x:600, y:270, width:250, height:24 },
-      { x:1020, y:350, width:300, height:24 },
-      { x:1480, y:300, width:260, height:24 },
-      { x:1880, y:240, width:250, height:24 },
-      { x:2260, y:350, width:300, height:24 },
-      { x:2700, y:295, width:260, height:24 },
-      { x:3180, y:340, width:280, height:24 }
+      { x:180, y:330, width:260, height:24 }, { x:600, y:270, width:250, height:24 },
+      { x:1020, y:350, width:300, height:24 }, { x:1480, y:300, width:260, height:24 },
+      { x:1880, y:240, width:250, height:24 }, { x:2260, y:350, width:300, height:24 },
+      { x:2700, y:295, width:260, height:24 }, { x:3180, y:340, width:280, height:24 }
     ];
+
+    const npc = { x: 1880, y: 178, width: 42, height: 62, color: "#ffd166" };
+    const door = { x: 3400, y: 330, width: 70, height: 120 };
 
     const player = {
       x:80, y:350, width:40, height:60, color:"#2f80ed",
       vx:0, vy:0, speed:1.18, maxSpeed:8.5, jumpPower:-14.5,
       onGround:false, facing:1,
-      health:125, maxHealth:125, energy:100, maxEnergy:100, lives:3,
+      health:130, maxHealth:130, energy:100, maxEnergy:100, lives:3,
       attacking:false, attackTimer:0, attackCooldown:0, hasHit:false,
       altAttacking:false, altTimer:0, altCooldown:0, altHasHit:false,
       rangedCooldown:0
@@ -145,21 +142,24 @@
     function clamp(n,min,max){ return Math.max(min, Math.min(max,n)); }
     function screenX(x){ return x - cameraX; }
     function currentAbility(){ return abilitySets[selectedAbility]; }
+    function livingEnemies(){ return enemies.filter(e => !e.defeated).length; }
+    function allEnemiesDead(){ return livingEnemies() === 0; }
+    function dist(a,b){ return Math.abs((a.x+a.width/2) - (b.x+b.width/2)); }
+    function say(text, frames=240){ speech = text; speechTimer = frames; }
 
     function makeEnemy(x,y,type="grunt"){
       const fast = type === "fast";
       const tank = type === "tank";
       return {
         x, y, width:tank?55:42, height:tank?72:62,
-        color: tank?"#a83232":fast?"#ff9f1c":"#e74c3c",
+        color: tank?"#8d2f2f":fast?"#ff9f1c":"#e74c3c",
         vx:0, vy:0, speed:fast?0.72:0.48, maxSpeed:fast?5.0:3.8, jumpPower:-12,
         onGround:false, facing:-1,
-        // Lower enemy health than V3.
-        health:tank?95:fast?38:58, maxHealth:tank?95:fast?38:58,
+        health:tank?82:fast?32:48, maxHealth:tank?82:fast?32:48,
         damage:tank?18:fast?10:13,
         attacking:false, attackTimer:0, attackCooldown:Math.random()*70, hasHit:false,
         rangedCooldown:80 + Math.random()*120,
-        defeated:false, type
+        defeated:false, counted:false, type
       };
     }
 
@@ -172,30 +172,24 @@
     }
 
     function applyPhysics(obj){
-      obj.vy += gravity;
-      obj.x += obj.vx;
-      obj.x = clamp(obj.x, 0, world.width - obj.width);
-      obj.y += obj.vy;
-      obj.onGround = false;
-      for(const p of platforms){
-        if(rects(obj,p) && obj.vy >= 0){ obj.y = p.y - obj.height; obj.vy = 0; obj.onGround = true; }
-      }
-      if(obj.y > 700){
-        if(obj === player) damagePlayer(999);
-        else { obj.x -= 160; obj.y = 200; obj.vx = 0; obj.vy = 0; }
-      }
+      obj.vy += gravity; obj.x += obj.vx; obj.x = clamp(obj.x, 0, world.width - obj.width);
+      obj.y += obj.vy; obj.onGround = false;
+      for(const p of platforms){ if(rects(obj,p) && obj.vy >= 0){ obj.y = p.y - obj.height; obj.vy = 0; obj.onGround = true; } }
+      if(obj.y > 700){ if(obj === player) damagePlayer(999); else { obj.x -= 160; obj.y = 200; obj.vx = 0; obj.vy = 0; } }
     }
 
-    function playerMelee(){
+    function playerJHitbox(){
       const a = currentAbility();
-      const extra = selectedAbility === "control" ? 25 : 0;
-      return { x: player.facing===1 ? player.x+player.width : player.x-62-extra, y:player.y+12, width:62+extra, height:42 };
+      if(a.jType === "farForward") return { x: player.facing===1 ? player.x+105 : player.x-205, y:player.y+16, width:140, height:28 };
+      if(a.jType === "forwardHeavy") return { x: player.facing===1 ? player.x+player.width : player.x-82, y:player.y+6, width:82, height:56 };
+      return { x: player.facing===1 ? player.x+player.width : player.x-66, y:player.y+12, width:66, height:42 };
     }
 
-    function playerAltMelee(){
-      if(selectedAbility === "burst") return { x:player.x-35, y:player.y+35, width:player.width+70, height:45 };
-      if(selectedAbility === "control") return { x:player.x-55, y:player.y+5, width:player.width+110, height:68 };
-      return { x:player.x-10, y:player.y-35, width:player.width+20, height:75 };
+    function playerUHitbox(){
+      const a = currentAbility();
+      if(a.uType === "mouseRig") return { x: mouse.worldX-38, y: mouse.worldY-38, width:76, height:76 };
+      if(a.uType === "surroundBig") return { x:player.x-72, y:player.y-48, width:player.width+144, height:player.height+96 };
+      return { x:player.x-48, y:player.y-30, width:player.width+96, height:player.height+60 };
     }
 
     function enemyMelee(e){ return { x:e.facing===1 ? e.x+e.width : e.x-55, y:e.y+15, width:55, height:42 }; }
@@ -203,518 +197,261 @@
 
     function getBeamRect(){
       const a = currentAbility();
-      const startX = player.facing === 1 ? player.x + player.width : player.x - 720;
-      return { x:startX, y:player.y + 24 - a.beamWidth/2, width:720, height:a.beamWidth };
+      return { x: player.facing===1 ? player.x + player.width : player.x - a.beamRange, y:player.y + 24 - a.beamWidth/2, width:a.beamRange, height:a.beamWidth };
     }
 
-    function shoot(owner,x,y,dir,damage,color,speed=11,size=18){
-      projectiles.push({ owner, x, y, width:size, height:size*0.55, vx:speed*dir, damage, color });
+    function shoot(owner,x,y,dir,damage,color,speed=11,size=18,range=700){
+      projectiles.push({ owner, x, y, startX:x, width:size, height:size*0.55, vx:speed*dir, damage, color, range });
     }
 
     function spawnBeamParticles(){
-      const b = getBeamRect();
-      for(let i=0;i<5;i++){
-        particles.push({
-          x: b.x + Math.random()*b.width,
-          y: b.y + Math.random()*b.height,
-          vx: -player.facing * (1 + Math.random()*2),
-          vy: (Math.random()-.5)*2,
-          life: 12 + Math.random()*12,
-          size: 3 + Math.random()*8,
-          color: Math.random()>.5 ? "#00f5d4" : "#ffffff"
-        });
-      }
+      const a = currentAbility(); const b = getBeamRect();
+      for(let i=0;i<6;i++) particles.push({
+        x: b.x + Math.random()*b.width, y: b.y + Math.random()*b.height,
+        vx: -player.facing * (1 + Math.random()*2), vy:(Math.random()-.5)*2,
+        life: 12 + Math.random()*12, size: 3 + Math.random()*8,
+        color: Math.random()>.45 ? a.beamColor : a.beamCore
+      });
     }
 
     function updateParticles(){
-      for(let i=particles.length-1;i>=0;i--){
-        const p = particles[i];
-        p.x += p.vx; p.y += p.vy; p.life--;
-        if(p.life <= 0) particles.splice(i,1);
-      }
+      for(let i=particles.length-1;i>=0;i--){ const p=particles[i]; p.x+=p.vx; p.y+=p.vy; p.life--; if(p.life<=0) particles.splice(i,1); }
     }
 
     function damagePlayer(amount){
       if(gameState !== "level" && gameState !== "boss") return;
       if(invincibleTimer > 0 || respawnTimer > 0) return;
-      player.health -= amount;
-      player.vy = -5;
-      if(player.health <= 0){
-        player.lives--;
-        if(player.lives <= 0){ lose("You ran out of lives!"); return; }
-        respawnTimer = 80;
-      }
+      player.health -= amount; player.vy = -5;
+      if(player.health <= 0){ player.lives--; if(player.lives <= 0){ lose("You ran out of lives!"); return; } respawnTimer = 80; }
     }
 
     function damageEnemy(e,amount,dir){
-      e.health -= amount;
-      e.vx = 8 * dir;
-      e.vy = -4;
-      if(e.health <= 0) e.defeated = true;
+      e.health -= amount; e.vx = 8 * dir; e.vy = -4;
+      if(e.health <= 0 && !e.defeated){ e.defeated = true; if(!e.counted){ e.counted = true; enemyKills++; } }
     }
 
     function handleRangedInput(){
-      const a = currentAbility();
-      const kDown = !!keys.k;
-
+      const a = currentAbility(); const kDown = !!keys.k;
       if(kDown) kHeldFrames++;
-
-      // Holding K becomes the beam variant. It is connected to the ranged move.
       if(kDown && kHeldFrames > 24 && player.energy > 0 && player.rangedCooldown <= 0){
-        beamActive = true;
-        player.energy -= a.beamCost;
-        screenShake = 5;
-        beamTick++;
-        spawnBeamParticles();
+        beamActive = true; player.energy -= a.beamCost; screenShake = selectedAbility === "burst" ? 8 : 5; beamTick++; spawnBeamParticles();
         if(player.energy <= 0){ player.energy = 0; beamActive = false; player.rangedCooldown = 45; }
-      } else {
-        beamActive = false;
-      }
+      } else beamActive = false;
 
-      // Releasing K quickly fires the normal projectile.
       if(!kDown && lastKDown){
         if(kHeldFrames <= 24 && player.rangedCooldown <= 0){
-          const count = a.projectileCount;
-          for(let i=0;i<count;i++){
-            const yOffset = count === 1 ? 0 : (i-.5)*18;
-            shoot("player", player.facing===1 ? player.x+player.width : player.x-18, player.y+28+yOffset, player.facing, a.projectileDamage, "#00f5d4");
+          for(let i=0;i<a.projectileCount;i++){
+            const yOffset = a.projectileCount === 1 ? 0 : (i-.5)*20;
+            shoot("player", player.facing===1 ? player.x+player.width : player.x-a.projectileSize, player.y+28+yOffset, player.facing,
+              a.projectileDamage, a.projectileColor, a.projectileSpeed, a.projectileSize, a.projectileRange);
           }
-          player.rangedCooldown = 24;
-        } else if(kHeldFrames > 24) {
-          player.rangedCooldown = 30;
-        }
-        kHeldFrames = 0;
-        beamActive = false;
+          player.rangedCooldown = selectedAbility === "burst" ? 34 : 24;
+        } else if(kHeldFrames > 24) player.rangedCooldown = 30;
+        kHeldFrames = 0; beamActive = false;
       }
-
       if(player.rangedCooldown > 0) player.rangedCooldown--;
-      if(player.energy < player.maxEnergy && !beamActive) player.energy += 0.45;
+      if(player.energy < player.maxEnergy && !beamActive) player.energy += selectedAbility === "control" ? 0.6 : 0.45;
       player.energy = clamp(player.energy,0,player.maxEnergy);
       lastKDown = kDown;
     }
 
     function updateBeamDamage(){
       if(!beamActive) return;
-      const a = currentAbility();
-      const b = getBeamRect();
+      const a = currentAbility(); const b = getBeamRect();
       if(beamTick % 6 !== 0) return;
-      for(const e of enemies){
-        if(!e.defeated && rects(b,e)) damageEnemy(e,a.beamDamage,player.facing);
-      }
+      for(const e of enemies) if(!e.defeated && rects(b,e)) damageEnemy(e,a.beamDamage,player.facing);
       if(boss.active && !boss.defeated && rects(b,boss)) damageEnemy(boss,a.beamDamage,player.facing);
     }
 
     function updatePlayer(){
       if(respawnTimer > 0) return;
+      const a = currentAbility(); player.color = a.color;
       if(keys.a){ player.vx -= player.speed; player.facing = -1; }
       if(keys.d){ player.vx += player.speed; player.facing = 1; }
       player.vx = clamp(player.vx, -player.maxSpeed, player.maxSpeed);
       if(keys.w && player.onGround){ player.vy = player.jumpPower; player.onGround = false; }
       player.vx *= friction;
 
-      if(keys.j && player.attackCooldown <= 0){
-        player.attacking = true; player.attackTimer = 12; player.attackCooldown = 20; player.hasHit = false;
-      }
+      if(keys.j && player.attackCooldown <= 0){ player.attacking = true; player.attackTimer = 12; player.attackCooldown = 20; player.hasHit = false; }
       if(player.attacking && --player.attackTimer <= 0) player.attacking = false;
       if(player.attackCooldown > 0) player.attackCooldown--;
 
-      if(keys.u && !lastUDown && player.altCooldown <= 0){
-        player.altAttacking = true; player.altTimer = 18; player.altCooldown = 46; player.altHasHit = false;
-      }
+      if(keys.u && !lastUDown && player.altCooldown <= 0){ player.altAttacking = true; player.altTimer = selectedAbility === "control" ? 26 : 18; player.altCooldown = selectedAbility === "control" ? 62 : 46; player.altHasHit = false; }
       lastUDown = !!keys.u;
       if(player.altAttacking && --player.altTimer <= 0) player.altAttacking = false;
       if(player.altCooldown > 0) player.altCooldown--;
 
       handleRangedInput();
-
-      // Stronger player regen than V3.
-      if(levelTimer % 24 === 0 && player.health < player.maxHealth) player.health = Math.min(player.maxHealth, player.health + 3);
+      if(levelTimer % 20 === 0 && player.health < player.maxHealth) player.health = Math.min(player.maxHealth, player.health + 3);
       if(invincibleTimer > 0) invincibleTimer--;
       applyPhysics(player);
     }
 
     function updateRespawn(){
       if(respawnTimer <= 0) return;
-      respawnTimer--;
-      player.vx = 0; player.vy = 0; beamActive = false; kHeldFrames = 0;
-      if(respawnTimer === 0){
-        player.health = player.maxHealth;
-        player.energy = player.maxEnergy;
-        player.x = bossStarted ? 3060 : Math.max(70, player.x - 220);
-        player.y = 120;
-        invincibleTimer = 130;
-      }
+      respawnTimer--; player.vx = 0; player.vy = 0; beamActive = false; kHeldFrames = 0;
+      if(respawnTimer === 0){ player.health = player.maxHealth; player.energy = player.maxEnergy; player.x = bossStarted ? 3060 : Math.max(70, player.x - 220); player.y = 120; invincibleTimer = 130; }
     }
 
     function updateEnemyAI(e){
       if(e.defeated) return;
-      const dx = (player.x+player.width/2) - (e.x+e.width/2);
-      const dy = (player.y+player.height/2) - (e.y+e.height/2);
-      const dist = Math.abs(dx);
-      e.facing = dx >= 0 ? 1 : -1;
-      if(Math.abs(e.x - player.x) > 720) return;
-      if(dist > 58) e.vx += e.speed * e.facing;
-      else e.vx *= 0.7;
-      e.vx = clamp(e.vx, -e.maxSpeed, e.maxSpeed);
-      if(dy < -50 && e.onGround) e.vy = e.jumpPower;
-      if(dist < 70 && Math.abs(dy) < 70 && e.attackCooldown <= 0){
-        e.attacking = true; e.attackTimer = 14; e.attackCooldown = e.type==="fast" ? 38 : 55; e.hasHit = false;
-      }
-      if(e.attacking && --e.attackTimer <= 0) e.attacking = false;
-      if(e.attackCooldown > 0) e.attackCooldown--;
-      if(dist > 190 && dist < 560 && Math.abs(dy) < 90 && e.rangedCooldown <= 0){
-        shoot("enemy", e.facing===1 ? e.x+e.width : e.x-16, e.y+30, e.facing, e.type==="tank"?13:9, "#ff7b00", 9, 16);
-        e.rangedCooldown = e.type==="fast" ? 95 : 125;
-      }
-      if(e.rangedCooldown > 0) e.rangedCooldown--;
-      if(levelTimer % 120 === 0 && e.health < e.maxHealth) e.health++;
-      e.vx *= 0.94;
-      applyPhysics(e);
+      const dx = (player.x+player.width/2) - (e.x+e.width/2); const dy = (player.y+player.height/2) - (e.y+e.height/2); const d = Math.abs(dx);
+      e.facing = dx >= 0 ? 1 : -1; if(Math.abs(e.x - player.x) > 720) return;
+      if(d > 58) e.vx += e.speed * e.facing; else e.vx *= 0.7;
+      e.vx = clamp(e.vx, -e.maxSpeed, e.maxSpeed); if(dy < -50 && e.onGround) e.vy = e.jumpPower;
+      if(d < 70 && Math.abs(dy) < 70 && e.attackCooldown <= 0){ e.attacking = true; e.attackTimer = 14; e.attackCooldown = e.type==="fast" ? 38 : 55; e.hasHit = false; }
+      if(e.attacking && --e.attackTimer <= 0) e.attacking = false; if(e.attackCooldown > 0) e.attackCooldown--;
+      if(d > 190 && d < 560 && Math.abs(dy) < 90 && e.rangedCooldown <= 0){ shoot("enemy", e.facing===1 ? e.x+e.width : e.x-16, e.y+30, e.facing, e.type==="tank"?13:9, "#ff7b00", 9, 16, 580); e.rangedCooldown = e.type==="fast" ? 95 : 125; }
+      if(e.rangedCooldown > 0) e.rangedCooldown--; if(levelTimer % 140 === 0 && e.health < e.maxHealth) e.health++;
+      e.vx *= 0.94; applyPhysics(e);
     }
 
     function updateBoss(){
       if(!boss.active || boss.defeated) return;
-      const dx = (player.x+20) - (boss.x+35);
-      const dy = player.y - boss.y;
-      const dist = Math.abs(dx);
-      boss.facing = dx >= 0 ? 1 : -1;
-      if(dist > 90) boss.vx += boss.speed * boss.facing;
-      else boss.vx *= 0.72;
-      boss.vx = clamp(boss.vx, -boss.maxSpeed, boss.maxSpeed);
-      if(dy < -55 && boss.onGround) boss.vy = boss.jumpPower;
-      if(dist < 105 && Math.abs(dy) < 90 && boss.attackCooldown <= 0){
-        boss.attacking = true; boss.attackTimer = 18; boss.attackCooldown = 48; boss.hasHit = false;
-      }
-      if(boss.attacking && --boss.attackTimer <= 0) boss.attacking = false;
-      if(boss.attackCooldown > 0) boss.attackCooldown--;
-      if(dist > 200 && dist < 700 && boss.rangedCooldown <= 0){
-        shoot("boss", boss.facing===1 ? boss.x+boss.width : boss.x-24, boss.y+42, boss.facing, 18, "#c77dff", 12, 28);
-        boss.rangedCooldown = 82;
-      }
+      const dx = (player.x+20) - (boss.x+35); const dy = player.y - boss.y; const d = Math.abs(dx);
+      boss.facing = dx >= 0 ? 1 : -1; if(d > 90) boss.vx += boss.speed * boss.facing; else boss.vx *= 0.72;
+      boss.vx = clamp(boss.vx, -boss.maxSpeed, boss.maxSpeed); if(dy < -55 && boss.onGround) boss.vy = boss.jumpPower;
+      if(d < 105 && Math.abs(dy) < 90 && boss.attackCooldown <= 0){ boss.attacking = true; boss.attackTimer = 18; boss.attackCooldown = 48; boss.hasHit = false; }
+      if(boss.attacking && --boss.attackTimer <= 0) boss.attacking = false; if(boss.attackCooldown > 0) boss.attackCooldown--;
+      if(d > 200 && d < 700 && boss.rangedCooldown <= 0){ shoot("boss", boss.facing===1 ? boss.x+boss.width : boss.x-24, boss.y+42, boss.facing, 18, "#c77dff", 12, 28, 760); boss.rangedCooldown = 82; }
       if(boss.rangedCooldown > 0) boss.rangedCooldown--;
-      if(boss.specialCooldown-- <= 0 && dist < 760){
-        gameState = "bossCutscene";
-        cutsceneTimer = 130;
-        boss.specialCooldown = 330;
-        beamActive = false;
-      }
-      if(levelTimer % 85 === 0 && boss.health < boss.maxHealth) boss.health += 1;
-      boss.vx *= 0.94;
-      applyPhysics(boss);
-      if(boss.health <= 0){ boss.defeated = true; win(); }
+      if(boss.specialCooldown-- <= 0 && d < 760){ gameState = "bossCutscene"; cutsceneTimer = 130; boss.specialCooldown = 330; beamActive = false; }
+      if(levelTimer % 95 === 0 && boss.health < boss.maxHealth) boss.health += 1;
+      boss.vx *= 0.94; applyPhysics(boss); if(boss.health <= 0){ boss.defeated = true; win(); }
     }
 
     function checkMeleeHits(){
       const a = currentAbility();
       if(player.attacking){
-        const h = playerMelee();
-        for(const e of enemies){ if(!e.defeated && rects(h,e) && !player.hasHit){ damageEnemy(e,a.meleeDamage,player.facing); player.hasHit = true; } }
-        if(boss.active && !boss.defeated && rects(h,boss) && !player.hasHit){ damageEnemy(boss,a.meleeDamage-6,player.facing); player.hasHit = true; }
+        const h = playerJHitbox();
+        for(const e of enemies) if(!e.defeated && rects(h,e) && !player.hasHit){ damageEnemy(e,a.meleeDamage,player.facing); player.hasHit = true; }
+        if(boss.active && !boss.defeated && rects(h,boss) && !player.hasHit){ damageEnemy(boss,a.meleeDamage-5,player.facing); player.hasHit = true; }
       }
       if(player.altAttacking){
-        const h = playerAltMelee();
-        for(const e of enemies){ if(!e.defeated && rects(h,e) && !player.altHasHit){ damageEnemy(e,a.altDamage,player.facing); e.vy = -9; player.altHasHit = true; } }
-        if(boss.active && !boss.defeated && rects(h,boss) && !player.altHasHit){ damageEnemy(boss,a.altDamage,player.facing); boss.vy = -5; player.altHasHit = true; }
+        const h = playerUHitbox();
+        for(const e of enemies) if(!e.defeated && rects(h,e) && !player.altHasHit){ damageEnemy(e,a.altDamage,player.facing); e.vy = selectedAbility === "control" ? -2 : -9; player.altHasHit = selectedAbility !== "surroundBig"; }
+        if(boss.active && !boss.defeated && rects(h,boss) && !player.altHasHit){ damageEnemy(boss,a.altDamage,player.facing); player.altHasHit = true; }
       }
-      for(const e of enemies){ if(!e.defeated && e.attacking && rects(enemyMelee(e),player) && !e.hasHit){ damagePlayer(e.damage); player.vx = 8*e.facing; e.hasHit = true; } }
+      for(const e of enemies) if(!e.defeated && e.attacking && rects(enemyMelee(e),player) && !e.hasHit){ damagePlayer(e.damage); player.vx = 8*e.facing; e.hasHit = true; }
       if(boss.active && boss.attacking && rects(bossMelee(),player) && !boss.hasHit){ damagePlayer(24); player.vx = 12*boss.facing; player.vy = -6; boss.hasHit = true; }
     }
 
     function updateProjectiles(){
       for(let i=projectiles.length-1;i>=0;i--){
-        const p = projectiles[i];
-        p.x += p.vx;
-        if(p.x < -100 || p.x > world.width+100){ projectiles.splice(i,1); continue; }
+        const p = projectiles[i]; p.x += p.vx;
+        if(Math.abs(p.x - p.startX) > p.range || p.x < -100 || p.x > world.width+100){ projectiles.splice(i,1); continue; }
         if(p.owner === "player"){
           let hit = false;
           for(const e of enemies){ if(!e.defeated && rects(p,e)){ damageEnemy(e,p.damage,Math.sign(p.vx)); hit = true; if(selectedAbility !== "control") break; } }
           if(!hit && boss.active && !boss.defeated && rects(p,boss)){ damageEnemy(boss,p.damage,Math.sign(p.vx)); hit = true; }
           if(hit && selectedAbility !== "control") projectiles.splice(i,1);
-        } else if(rects(p,player)){
-          damagePlayer(p.damage);
-          projectiles.splice(i,1);
-        }
+        } else if(rects(p,player)){ damagePlayer(p.damage); projectiles.splice(i,1); }
       }
     }
 
-    function maybeStartBossTransition(){
-      if(!bossStarted && (player.x > 3220 || levelTimer > 3600)){
-        bossStarted = true;
-        gameState = "transition";
-        cutsceneTimer = 120;
-        projectiles = [];
-        beamActive = false;
+    function updateNpcAndDoor(){
+      const nearNpc = dist(player,npc) < 95 && Math.abs(player.y - npc.y) < 110;
+      const nearDoor = dist(player,door) < 100;
+      const ePressed = keys.e && !lastEDown;
+      if(nearNpc && !npcGaveKey){
+        if(enemyKills >= 3){ say("Guide: You defeated 3 enemies. Take this key. But the door accepts it only after all enemies are gone."); if(ePressed){ hasKey = true; npcGaveKey = true; say("Key obtained! Now defeat every remaining enemy."); } }
+        else say("Guide: Defeat 3 enemies, then press E near me for the key. Kills: " + enemyKills + "/3", 60);
       }
+      if(nearDoor){
+        if(!hasKey) say("Door: Locked. Find the Guide and earn the key.", 60);
+        else if(!allEnemiesDead()) say("Door: The key rejects you. Defeat all enemies first. Left: " + livingEnemies(), 60);
+        else if(ePressed){ doorOpen = true; gameState = "transition"; cutsceneTimer = 120; projectiles = []; beamActive = false; say("Door opened. Boss arena unlocked!"); }
+        else say("Door: Press E to unlock the boss arena.", 60);
+      }
+      lastEDown = !!keys.e;
     }
 
     function updateCamera(){
       const target = gameState === "boss" || gameState === "bossCutscene" || gameState === "clash" ? 2950 : player.x - canvas.width/2;
       cameraX += (clamp(target,0,world.width-canvas.width) - cameraX) * 0.09;
+      mouse.worldX = mouse.x + cameraX;
     }
 
     function updateGame(){
-      levelTimer++;
-      updateRespawn();
-      updatePlayer();
-      enemies.forEach(updateEnemyAI);
-      updateBoss();
-      checkMeleeHits();
-      updateBeamDamage();
-      updateProjectiles();
-      updateParticles();
-      maybeStartBossTransition();
-      updateCamera();
-      if(screenShake > 0) screenShake--;
+      levelTimer++; updateRespawn(); updatePlayer(); enemies.forEach(updateEnemyAI); updateBoss(); checkMeleeHits(); updateBeamDamage(); updateProjectiles(); updateParticles(); updateNpcAndDoor(); updateCamera();
+      if(screenShake > 0) screenShake--; if(speechTimer > 0) speechTimer--;
     }
 
     function drawBackground(){
-      ctx.fillStyle = gameState === "clash" ? "#140020" : "#7fc7ff";
-      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = gameState === "clash" ? "#140020" : "#7fc7ff"; ctx.fillRect(0,0,canvas.width,canvas.height);
       if(gameState !== "clash"){
         ctx.fillStyle = "#ffd166"; ctx.beginPath(); ctx.arc(790,80,35,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle = "#6fcf97";
-        for(let x=-200; x<world.width; x+=520){ ctx.beginPath(); ctx.arc(screenX(x),470,180,Math.PI,0); ctx.fill(); }
+        ctx.fillStyle = "#6fcf97"; for(let x=-200; x<world.width; x+=520){ ctx.beginPath(); ctx.arc(screenX(x),470,180,Math.PI,0); ctx.fill(); }
       }
     }
+    function drawPlatforms(){ for(const p of platforms){ if(screenX(p.x+p.width)<-50 || screenX(p.x)>canvas.width+50) continue; ctx.fillStyle="#5b3b22"; ctx.fillRect(screenX(p.x),p.y,p.width,p.height); ctx.fillStyle="#3fa34d"; ctx.fillRect(screenX(p.x),p.y,p.width,6); ctx.strokeStyle="black"; ctx.strokeRect(screenX(p.x),p.y,p.width,p.height); } }
+    function drawRect(obj){ if(obj===player && invincibleTimer>0 && Math.floor(invincibleTimer/6)%2===0) return; ctx.fillStyle=obj.color; ctx.fillRect(screenX(obj.x),obj.y,obj.width,obj.height); ctx.strokeStyle="black"; ctx.lineWidth=2; ctx.strokeRect(screenX(obj.x),obj.y,obj.width,obj.height); ctx.fillStyle="white"; ctx.font="19px Arial"; ctx.fillText(obj.facing===1?">":"<",screenX(obj.x)+obj.width/2-5,obj.y+36); }
+    function drawBar(x,y,w,h,hp,max,label,color="#2ecc71"){ ctx.fillStyle="#333"; ctx.fillRect(x,y,w,h); ctx.fillStyle=color; ctx.fillRect(x,y,w*clamp(hp/max,0,1),h); ctx.strokeStyle="white"; ctx.strokeRect(x,y,w,h); ctx.fillStyle="white"; ctx.font="15px Arial"; ctx.fillText(label+": "+Math.max(0,Math.floor(hp)),x,y-5); }
 
-    function drawPlatforms(){
-      for(const p of platforms){
-        if(screenX(p.x+p.width) < -50 || screenX(p.x) > canvas.width+50) continue;
-        ctx.fillStyle = "#5b3b22"; ctx.fillRect(screenX(p.x),p.y,p.width,p.height);
-        ctx.fillStyle = "#3fa34d"; ctx.fillRect(screenX(p.x),p.y,p.width,6);
-        ctx.strokeStyle = "black"; ctx.strokeRect(screenX(p.x),p.y,p.width,p.height);
-      }
-    }
-
-    function drawRect(obj){
-      if(obj === player && invincibleTimer > 0 && Math.floor(invincibleTimer/6)%2===0) return;
-      ctx.fillStyle = obj.color;
-      ctx.fillRect(screenX(obj.x),obj.y,obj.width,obj.height);
-      ctx.strokeStyle = "black"; ctx.lineWidth = 2; ctx.strokeRect(screenX(obj.x),obj.y,obj.width,obj.height);
-      ctx.fillStyle = "white"; ctx.font = "19px Arial"; ctx.fillText(obj.facing===1?">":"<", screenX(obj.x)+obj.width/2-5, obj.y+36);
-    }
-
-    function drawBar(x,y,w,h,hp,max,label,color="#2ecc71"){
-      ctx.fillStyle = "#333"; ctx.fillRect(x,y,w,h);
-      ctx.fillStyle = color; ctx.fillRect(x,y,w*clamp(hp/max,0,1),h);
-      ctx.strokeStyle = "white"; ctx.strokeRect(x,y,w,h);
-      ctx.fillStyle = "white"; ctx.font = "15px Arial"; ctx.fillText(label+": "+Math.max(0,Math.floor(hp)),x,y-5);
+    function drawNpcDoor(){
+      ctx.fillStyle = npcGaveKey ? "#c0c0c0" : npc.color; ctx.fillRect(screenX(npc.x),npc.y,npc.width,npc.height); ctx.strokeStyle="black"; ctx.strokeRect(screenX(npc.x),npc.y,npc.width,npc.height); ctx.fillStyle="black"; ctx.font="13px Arial"; ctx.fillText("NPC",screenX(npc.x)+6,npc.y+35);
+      ctx.fillStyle = doorOpen ? "rgba(0,245,212,.35)" : hasKey && allEnemiesDead() ? "#00f5d4" : "#4b2e18"; ctx.fillRect(screenX(door.x),door.y,door.width,door.height); ctx.strokeStyle="white"; ctx.lineWidth=3; ctx.strokeRect(screenX(door.x),door.y,door.width,door.height); ctx.fillStyle="white"; ctx.font="14px Arial"; ctx.fillText("DOOR",screenX(door.x)+12,door.y+64);
+      if(hasKey){ ctx.fillStyle="#ffd166"; ctx.fillRect(790,82,22,12); ctx.fillStyle="white"; ctx.font="14px Arial"; ctx.fillText("Key",818,94); }
     }
 
     function drawBeam(){
-      if(!beamActive) return;
-      const b = getBeamRect();
-      const sx = screenX(b.x);
-      const pulse = Math.sin(levelTimer * 0.5) * 6;
-      const coreY = b.y + b.height/2;
-      ctx.save();
-      ctx.globalAlpha = 0.25;
-      ctx.fillStyle = "#00f5d4";
-      ctx.fillRect(sx, b.y-18-pulse/2, b.width, b.height+36+pulse);
-      ctx.globalAlpha = 0.55;
-      ctx.fillStyle = "#67fff0";
-      ctx.fillRect(sx, b.y-6, b.width, b.height+12);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = "white";
-      ctx.fillRect(sx, coreY-7, b.width, 14);
-      ctx.fillStyle = "#00f5d4";
-      for(let i=0;i<9;i++){
-        const x = sx + i*85 + (levelTimer*9 % 85);
-        ctx.beginPath(); ctx.arc(x, coreY + Math.sin(levelTimer*.25+i)*b.height*.35, 10+Math.random()*4, 0, Math.PI*2); ctx.fill();
-      }
-      ctx.restore();
+      if(!beamActive) return; const a=currentAbility(); const b=getBeamRect(); const sx=screenX(b.x); const pulse=Math.sin(levelTimer*.5)*6; const coreY=b.y+b.height/2;
+      ctx.save(); ctx.globalAlpha=.22; ctx.fillStyle=a.beamColor; ctx.fillRect(sx,b.y-18-pulse/2,b.width,b.height+36+pulse); ctx.globalAlpha=.55; ctx.fillStyle=a.beamColor; ctx.fillRect(sx,b.y-6,b.width,b.height+12); ctx.globalAlpha=1; ctx.fillStyle=a.beamCore; ctx.fillRect(sx,coreY-7,b.width,14);
+      ctx.fillStyle=a.beamColor; for(let i=0;i<9;i++){ const x=sx+i*85+(levelTimer*9%85); ctx.beginPath(); ctx.arc(x,coreY+Math.sin(levelTimer*.25+i)*b.height*.35,10+Math.random()*4,0,Math.PI*2); ctx.fill(); } ctx.restore();
     }
-
-    function drawParticles(){
-      for(const p of particles){
-        ctx.globalAlpha = clamp(p.life/18,0,1);
-        ctx.fillStyle = p.color;
-        ctx.beginPath(); ctx.arc(screenX(p.x),p.y,p.size,0,Math.PI*2); ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-    }
-
+    function drawParticles(){ for(const p of particles){ ctx.globalAlpha=clamp(p.life/18,0,1); ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(screenX(p.x),p.y,p.size,0,Math.PI*2); ctx.fill(); } ctx.globalAlpha=1; }
     function drawHitboxes(){
-      if(player.attacking){ const h = playerMelee(); ctx.fillStyle="rgba(255,255,0,.5)"; ctx.fillRect(screenX(h.x),h.y,h.width,h.height); }
-      if(player.altAttacking){ const h = playerAltMelee(); ctx.fillStyle="rgba(0,245,212,.35)"; ctx.fillRect(screenX(h.x),h.y,h.width,h.height); }
+      if(player.attacking){ const h=playerJHitbox(); ctx.fillStyle="rgba(255,255,0,.5)"; ctx.fillRect(screenX(h.x),h.y,h.width,h.height); }
+      if(player.altAttacking){ const h=playerUHitbox(); ctx.fillStyle=selectedAbility==="control"?"rgba(184,242,255,.45)":"rgba(0,245,212,.32)"; ctx.fillRect(screenX(h.x),h.y,h.width,h.height); if(selectedAbility==="control"){ ctx.strokeStyle="#b8f2ff"; ctx.beginPath(); ctx.moveTo(screenX(player.x+player.width/2),player.y+20); ctx.lineTo(mouse.x,mouse.y); ctx.stroke(); } }
       for(const e of enemies){ if(!e.defeated && e.attacking){ const h=enemyMelee(e); ctx.fillStyle="rgba(255,80,80,.38)"; ctx.fillRect(screenX(h.x),h.y,h.width,h.height); } }
       if(boss.active && boss.attacking){ const h=bossMelee(); ctx.fillStyle="rgba(199,125,255,.45)"; ctx.fillRect(screenX(h.x),h.y,h.width,h.height); }
     }
-
-    function drawProjectiles(){
-      for(const p of projectiles){ ctx.fillStyle=p.color; ctx.fillRect(screenX(p.x),p.y,p.width,p.height); ctx.strokeStyle="black"; ctx.strokeRect(screenX(p.x),p.y,p.width,p.height); }
-    }
+    function drawProjectiles(){ for(const p of projectiles){ ctx.fillStyle=p.color; ctx.fillRect(screenX(p.x),p.y,p.width,p.height); ctx.strokeStyle="black"; ctx.strokeRect(screenX(p.x),p.y,p.width,p.height); } }
 
     function drawHud(){
-      drawBar(25,35,235,20,player.health,player.maxHealth,"Player");
-      drawBar(25,72,180,14,player.energy,player.maxEnergy,"Energy","#00f5d4");
-      ctx.fillStyle="white"; ctx.font="17px Arial"; ctx.fillText("Lives: "+player.lives,25,115);
-      ctx.fillText("Build: "+currentAbility().name,25,138);
-      ctx.fillText("Map: "+Math.floor(player.x)+" / "+world.width,25,160);
-      if(boss.active) drawBar(560,35,300,22,boss.health,boss.maxHealth,"Boss","#c77dff");
-      else ctx.fillText("Goal: survive and reach the far right",560,50);
-      if(respawnTimer>0){ ctx.font="32px Arial"; ctx.fillText("Respawning...",340,210); }
-      if(beamActive){ ctx.font="18px Arial"; ctx.fillText(currentAbility().beamName + " ACTIVE",360,85); }
+      const a=currentAbility(); drawBar(25,35,235,20,player.health,player.maxHealth,"Player"); drawBar(25,72,180,14,player.energy,player.maxEnergy,"Energy",a.aura);
+      ctx.fillStyle="white"; ctx.font="16px Arial"; ctx.fillText("Lives: "+player.lives,25,115); ctx.fillText("Build: "+a.name,25,138); ctx.fillText("Kills: "+enemyKills+" | Enemies left: "+livingEnemies(),25,160);
+      if(boss.active) drawBar(560,35,300,22,boss.health,boss.maxHealth,"Boss","#c77dff"); else ctx.fillText("Objective: get key, clear enemies, open door",530,50);
+      if(speechTimer>0){ ctx.fillStyle="rgba(0,0,0,.62)"; ctx.fillRect(235,92,430,52); ctx.fillStyle="white"; ctx.font="15px Arial"; ctx.fillText(speech,250,123); }
+      if(beamActive){ ctx.font="18px Arial"; ctx.fillText(a.beamName + " ACTIVE",360,85); }
     }
 
     function drawLevel(){
-      const shakeX = screenShake > 0 ? (Math.random()-.5)*screenShake*2 : 0;
-      const shakeY = screenShake > 0 ? (Math.random()-.5)*screenShake*2 : 0;
-      ctx.save(); ctx.translate(shakeX,shakeY);
-      drawBackground(); drawPlatforms(); drawHitboxes(); drawBeam(); drawParticles(); drawProjectiles();
-      if(respawnTimer <= 0) drawRect(player);
-      for(const e of enemies){ if(!e.defeated) drawRect(e); }
-      if(boss.active && !boss.defeated) drawRect(boss);
-      ctx.restore();
-      drawHud();
-      ctx.fillStyle="black"; ctx.font="16px Arial";
-      ctx.fillText("J melee | U alt melee | tap K projectile | hold K beam variant",225,485);
+      const shakeX=screenShake>0?(Math.random()-.5)*screenShake*2:0, shakeY=screenShake>0?(Math.random()-.5)*screenShake*2:0;
+      ctx.save(); ctx.translate(shakeX,shakeY); drawBackground(); drawPlatforms(); drawNpcDoor(); drawHitboxes(); drawBeam(); drawParticles(); drawProjectiles(); if(respawnTimer<=0) drawRect(player); for(const e of enemies) if(!e.defeated) drawRect(e); if(boss.active&&!boss.defeated) drawRect(boss); ctx.restore();
+      drawHud(); ctx.fillStyle="black"; ctx.font="15px Arial"; ctx.fillText("J = build-specific melee | U = surround/rig | tap K = projectile | hold K = unique beam | E = talk/open",150,485);
     }
 
-    function drawLoading(){
-      drawBackground();
-      ctx.fillStyle="rgba(0,0,0,.55)"; ctx.fillRect(0,0,canvas.width,canvas.height);
-      ctx.fillStyle="white"; ctx.font="42px Arial"; ctx.fillText("Loading Abilities...",285,210);
-      const fill = (80-loadingTimer)/80*360;
-      ctx.fillStyle="#333"; ctx.fillRect(270,245,360,28);
-      ctx.fillStyle="#00f5d4"; ctx.fillRect(270,245,fill,28);
-      ctx.strokeStyle="white"; ctx.strokeRect(270,245,360,28);
-    }
-
+    function drawLoading(){ drawBackground(); ctx.fillStyle="rgba(0,0,0,.55)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="42px Arial"; ctx.fillText("Loading V5...",335,210); const fill=(70-loadingTimer)/70*360; ctx.fillStyle="#333"; ctx.fillRect(270,245,360,28); ctx.fillStyle="#00f5d4"; ctx.fillRect(270,245,fill,28); ctx.strokeStyle="white"; ctx.strokeRect(270,245,360,28); }
+    function wrapText(text,x,y,maxWidth,lineHeight){ const words=text.split(" "); let line=""; for(const word of words){ const test=line+word+" "; if(ctx.measureText(test).width>maxWidth){ ctx.fillText(line,x,y); line=word+" "; y+=lineHeight; } else line=test; } ctx.fillText(line,x,y); }
     function drawSelection(){
-      drawBackground();
-      ctx.fillStyle="rgba(0,0,0,.58)"; ctx.fillRect(0,0,canvas.width,canvas.height);
-      ctx.fillStyle="white"; ctx.font="36px Arial"; ctx.fillText("Choose Your Ability Set",260,80);
-      const cards = [
-        ["1", "basic", 85],
-        ["2", "burst", 335],
-        ["3", "control", 585]
-      ];
-      for(const [num,key,x] of cards){
-        const a = abilitySets[key];
-        ctx.fillStyle = selectedAbility === key ? "rgba(0,245,212,.35)" : "rgba(255,255,255,.16)";
-        ctx.fillRect(x,130,230,240);
-        ctx.strokeStyle = selectedAbility === key ? "#00f5d4" : "white";
-        ctx.lineWidth = 3; ctx.strokeRect(x,130,230,240);
-        ctx.fillStyle="white"; ctx.font="26px Arial"; ctx.fillText(num + ". " + a.name, x+18,170);
-        ctx.font="16px Arial"; wrapText(a.desc, x+18,205,190,20);
-        ctx.fillText("J: " + a.meleeName, x+18,270);
-        ctx.fillText("U: " + a.altName, x+18,295);
-        ctx.fillText("tap K: " + a.projectileName, x+18,320);
-        ctx.fillText("hold K: " + a.beamName, x+18,345);
-      }
-      ctx.font="21px Arial"; ctx.fillText("Press 1, 2, or 3. Press Enter to start.",265,420);
+      drawBackground(); ctx.fillStyle="rgba(0,0,0,.58)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="36px Arial"; ctx.fillText("Choose Your Character",270,72);
+      const cards=[["1","basic",70],["2","burst",335],["3","control",600]];
+      for(const [num,key,x] of cards){ const a=abilitySets[key]; ctx.fillStyle=selectedAbility===key?"rgba(0,245,212,.35)":"rgba(255,255,255,.16)"; ctx.fillRect(x,115,230,275); ctx.strokeStyle=selectedAbility===key?a.aura:"white"; ctx.lineWidth=3; ctx.strokeRect(x,115,230,275); ctx.fillStyle=a.color; ctx.fillRect(x+18,145,34,54); ctx.fillStyle="white"; ctx.font="24px Arial"; ctx.fillText(num+". "+a.name,x+60,170); ctx.font="15px Arial"; wrapText(a.desc,x+18,225,190,18); ctx.fillText("J: "+a.jName,x+18,295); ctx.fillText("U: "+a.uName,x+18,318); ctx.fillText("tap K: "+a.kName,x+18,341); ctx.fillText("hold K: "+a.beamName,x+18,364); }
+      ctx.font="21px Arial"; ctx.fillText("Press 1, 2, or 3. Press Enter to start.",265,430);
     }
+    function drawTransition(){ drawLevel(); ctx.fillStyle="rgba(0,0,0,.65)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="34px Arial"; ctx.fillText("The locked door opens...",265,190); ctx.font="20px Arial"; ctx.fillText("A boss pulls you into a final stage.",300,230); }
+    function drawBossCutscene(){ drawLevel(); ctx.fillStyle="rgba(20,0,30,.72)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="#c77dff"; ctx.font="36px Arial"; ctx.fillText("BOSS SPECIAL: INNER TRIAL",230,180); ctx.fillStyle="white"; ctx.font="20px Arial"; ctx.fillText("The fight pauses. A beam clash is about to start.",250,225); ctx.fillText("Mash K during the clash to push back!",285,255); }
+    function drawClash(){ ctx.fillStyle="#140020"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="32px Arial"; ctx.fillText("INSIDE BATTLE: BEAM CLASH",240,90); ctx.font="19px Arial"; ctx.fillText("Mash K to push the beam to the boss side before time runs out!",205,125); ctx.fillStyle="rgba(0,245,212,.35)"; ctx.fillRect(90,226,clashPower*7.2,66); ctx.fillStyle="rgba(199,125,255,.35)"; ctx.fillRect(90+clashPower*7.2,226,(100-clashPower)*7.2,66); ctx.fillStyle=currentAbility().beamColor; ctx.fillRect(90,248,clashPower*7.2,24); ctx.fillStyle="#c77dff"; ctx.fillRect(90+clashPower*7.2,248,(100-clashPower)*7.2,24); ctx.fillStyle="white"; ctx.fillRect(90+clashPower*7.2-8,238,16,44); ctx.strokeStyle="white"; ctx.lineWidth=3; ctx.strokeRect(90,226,720,66); ctx.fillStyle="white"; ctx.font="22px Arial"; ctx.fillText("Time: "+Math.ceil(clashTimer/60),405,335); }
+    function drawEnd(){ drawLevel(); ctx.fillStyle="rgba(0,0,0,.65)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="38px Arial"; ctx.fillText(message,260,215); }
 
-    function wrapText(text,x,y,maxWidth,lineHeight){
-      const words = text.split(" "); let line = "";
-      for(const word of words){
-        const test = line + word + " ";
-        if(ctx.measureText(test).width > maxWidth){ ctx.fillText(line,x,y); line = word + " "; y += lineHeight; }
-        else line = test;
-      }
-      ctx.fillText(line,x,y);
-    }
-
-    function drawTransition(){
-      drawLevel();
-      ctx.fillStyle="rgba(0,0,0,.65)"; ctx.fillRect(0,0,canvas.width,canvas.height);
-      ctx.fillStyle="white"; ctx.font="34px Arial"; ctx.fillText("The arena bends...",305,190);
-      ctx.font="20px Arial"; ctx.fillText("A boss pulls you into a final stage.",300,230);
-    }
-
-    function drawBossCutscene(){
-      drawLevel();
-      ctx.fillStyle="rgba(20,0,30,.72)"; ctx.fillRect(0,0,canvas.width,canvas.height);
-      ctx.fillStyle="#c77dff"; ctx.font="36px Arial"; ctx.fillText("BOSS SPECIAL: INNER TRIAL",230,180);
-      ctx.fillStyle="white"; ctx.font="20px Arial"; ctx.fillText("The fight pauses. A beam clash is about to start.",250,225);
-      ctx.fillText("Mash K during the clash to push back!",285,255);
-    }
-
-    function drawClash(){
-      ctx.fillStyle="#140020"; ctx.fillRect(0,0,canvas.width,canvas.height);
-      ctx.fillStyle="white"; ctx.font="32px Arial"; ctx.fillText("INSIDE BATTLE: BEAM CLASH",240,90);
-      ctx.font="19px Arial"; ctx.fillText("Mash K to push the beam to the boss side before time runs out!",205,125);
-      // Big visual beam clash effect.
-      ctx.fillStyle="rgba(0,245,212,.35)"; ctx.fillRect(90,226,clashPower*7.2,66);
-      ctx.fillStyle="rgba(199,125,255,.35)"; ctx.fillRect(90+clashPower*7.2,226,(100-clashPower)*7.2,66);
-      ctx.fillStyle="#00f5d4"; ctx.fillRect(90,248,clashPower*7.2,24);
-      ctx.fillStyle="#c77dff"; ctx.fillRect(90+clashPower*7.2,248,(100-clashPower)*7.2,24);
-      ctx.fillStyle="white"; ctx.fillRect(90+clashPower*7.2-8,238,16,44);
-      ctx.strokeStyle="white"; ctx.lineWidth=3; ctx.strokeRect(90,226,720,66);
-      ctx.fillStyle="white"; ctx.font="18px Arial"; ctx.fillText("Player",90,210); ctx.fillText("Boss",770,210);
-      ctx.font="22px Arial"; ctx.fillText("Time: "+Math.ceil(clashTimer/60),405,335);
-    }
-
-    function drawEnd(){
-      drawLevel();
-      ctx.fillStyle="rgba(0,0,0,.65)"; ctx.fillRect(0,0,canvas.width,canvas.height);
-      ctx.fillStyle="white"; ctx.font="38px Arial"; ctx.fillText(message,260,215);
-    }
-
-    function startBoss(){
-      gameState = "boss";
-      boss.active = true;
-      boss.x = 3420; boss.y = 300; boss.health = boss.maxHealth;
-      player.x = 3060; player.y = 240; player.vx = 0; player.vy = 0;
-      cameraX = 2900;
-      projectiles = [];
-      beamActive = false;
-    }
-
+    function startBoss(){ gameState="boss"; boss.active=true; boss.x=3420; boss.y=300; boss.health=boss.maxHealth; player.x=3060; player.y=240; player.vx=0; player.vy=0; cameraX=2900; projectiles=[]; beamActive=false; }
     function updateSpecialStates(){
-      if(gameState === "loading"){
-        if(--loadingTimer <= 0) gameState = "select";
-      } else if(gameState === "select"){
-        if(keys["1"]) selectedAbility = "basic";
-        if(keys["2"]) selectedAbility = "burst";
-        if(keys["3"]) selectedAbility = "control";
-        if(keys.enter) gameState = "level";
-      } else if(gameState === "transition"){
-        if(--cutsceneTimer <= 0) startBoss();
-      } else if(gameState === "bossCutscene"){
-        if(--cutsceneTimer <= 0){ gameState = "clash"; clashTimer = 360; clashPower = 50; }
-      } else if(gameState === "clash"){
-        clashTimer--;
-        clashPower -= 0.25;
-        if(keys.k && !lastKDown) clashPower += 4.2;
-        clashPower = clamp(clashPower,0,100);
-        if(clashPower >= 100){ boss.health -= 90; gameState = "boss"; invincibleTimer = 80; }
-        else if(clashPower <= 0 || clashTimer <= 0){ damagePlayer(38); gameState = "boss"; }
-        lastKDown = !!keys.k;
-      }
+      if(gameState==="loading"){ if(--loadingTimer<=0) gameState="select"; }
+      else if(gameState==="select"){ if(keys["1"]) selectedAbility="basic"; if(keys["2"]) selectedAbility="burst"; if(keys["3"]) selectedAbility="control"; if(keys.enter){ player.color=currentAbility().color; say("Objective: kill 3 enemies, talk to the Guide, then clear all enemies and open the door.",360); gameState="level"; } }
+      else if(gameState==="transition"){ if(--cutsceneTimer<=0) startBoss(); }
+      else if(gameState==="bossCutscene"){ if(--cutsceneTimer<=0){ gameState="clash"; clashTimer=360; clashPower=50; } }
+      else if(gameState==="clash"){ clashTimer--; clashPower-=.25; if(keys.k&&!lastKDown) clashPower+=4.2; clashPower=clamp(clashPower,0,100); if(clashPower>=100){ boss.health-=90; gameState="boss"; invincibleTimer=80; } else if(clashPower<=0||clashTimer<=0){ damagePlayer(38); gameState="boss"; } lastKDown=!!keys.k; }
     }
-
-    function win(){ gameState = "win"; message = "Boss defeated! You win!"; restartButton.style.display="inline-block"; }
-    function lose(text){ gameState = "lose"; message = text; restartButton.style.display="inline-block"; }
-
-    function draw(){
-      if(gameState === "loading") drawLoading();
-      else if(gameState === "select") drawSelection();
-      else if(gameState === "transition") drawTransition();
-      else if(gameState === "bossCutscene") drawBossCutscene();
-      else if(gameState === "clash") drawClash();
-      else if(gameState === "win" || gameState === "lose") drawEnd();
-      else drawLevel();
-    }
-
-    function gameLoop(){
-      updateSpecialStates();
-      if(gameState === "level" || gameState === "boss") updateGame();
-      draw();
-      requestAnimationFrame(gameLoop);
-    }
-
+    function win(){ gameState="win"; message="Boss defeated! You win!"; restartButton.style.display="inline-block"; }
+    function lose(text){ gameState="lose"; message=text; restartButton.style.display="inline-block"; }
+    function draw(){ if(gameState==="loading") drawLoading(); else if(gameState==="select") drawSelection(); else if(gameState==="transition") drawTransition(); else if(gameState==="bossCutscene") drawBossCutscene(); else if(gameState==="clash") drawClash(); else if(gameState==="win"||gameState==="lose") drawEnd(); else drawLevel(); }
+    function gameLoop(){ updateSpecialStates(); if(gameState==="level"||gameState==="boss") updateGame(); draw(); requestAnimationFrame(gameLoop); }
     function restartGame(){
-      gameState = "loading"; loadingTimer = 80; levelTimer = 0; cameraX = 0; message = "";
-      respawnTimer = 0; invincibleTimer = 0; bossStarted = false; cutsceneTimer = 0; clashTimer = 0; clashPower = 50;
-      kHeldFrames = 0; beamActive = false; beamTick = 0; screenShake = 0; lastKDown = false; lastUDown = false;
-      player.x=80; player.y=350; player.vx=0; player.vy=0; player.health=player.maxHealth; player.energy=player.maxEnergy; player.lives=3; player.facing=1;
-      player.attacking=false; player.attackCooldown=0; player.rangedCooldown=0; player.altAttacking=false; player.altCooldown=0;
-      boss.x=3420; boss.y=350; boss.vx=0; boss.vy=0; boss.health=boss.maxHealth; boss.active=false; boss.defeated=false; boss.specialCooldown=260;
-      projectiles=[]; particles=[]; spawnEnemies(); restartButton.style.display="none";
+      gameState="loading"; loadingTimer=70; levelTimer=0; cameraX=0; message=""; respawnTimer=0; invincibleTimer=0; bossStarted=false; cutsceneTimer=0; clashTimer=0; clashPower=50; kHeldFrames=0; beamActive=false; beamTick=0; screenShake=0; lastKDown=false; lastUDown=false; lastEDown=false; enemyKills=0; hasKey=false; npcGaveKey=false; doorOpen=false; speech="Find the Guide halfway through the map."; speechTimer=240;
+      player.x=80; player.y=350; player.vx=0; player.vy=0; player.health=player.maxHealth; player.energy=player.maxEnergy; player.lives=3; player.facing=1; player.attacking=false; player.attackCooldown=0; player.rangedCooldown=0; player.altAttacking=false; player.altCooldown=0;
+      boss.x=3420; boss.y=350; boss.vx=0; boss.vy=0; boss.health=boss.maxHealth; boss.active=false; boss.defeated=false; boss.specialCooldown=260; projectiles=[]; particles=[]; spawnEnemies(); restartButton.style.display="none";
     }
-
     restartButton.addEventListener("click", restartGame);
     spawnEnemies();
     gameLoop();
