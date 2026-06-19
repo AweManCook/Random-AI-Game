@@ -4,7 +4,7 @@ A beginner-friendly one-file JavaScript Canvas platform fighter prototype.
 
 ## Game
 
-This is now a scrolling 2D platformer fighting game prototype with unique character builds, enemy waves, regeneration, an NPC/key objective, a locked boss door, a boss transition, and a boss special inside-battle beam clash.
+This is now a scrolling 2D platformer fighting game prototype with unique character builds, enemy waves, regeneration, an NPC/key objective, a locked boss door, a separate boss arena, and a boss special inside-battle beam clash.
 
 ## Main objective
 
@@ -44,25 +44,26 @@ A balanced build with medium projectile range, medium beam width, and solid dama
 
 ### 2. Burst Striker
 
-- **J**: Heavy Forward Cleave
-- **U**: Explosive Surround Slam
+- **J**: Heavy Cleave
+- **U**: Explosive Slam
 - **Tap K**: Red Bomb Shot
 - **Hold K**: Wide Burst Beam
 
 A close-range aggressive build with heavier damage, shorter projectile range, and a wide red beam.
 
-### 3. Control Caster
+### 3. Thousand-Year Mage
 
-- **J**: Far Puppet Stab
-- **U**: Mouse Rig Snare
-- **Tap K**: Twin Violet Needles
-- **Hold K**: Thin Piercing Ray
+- **J**: Ancient Puppet Stab
+- **U**: Mouse Rig Spell
+- **Tap K**: Nerfed Twin Needles
+- **Hold K**: Ancient Piercing Ray
 
-A long-range build. Its **J** hitbox appears far forward from the player, and its **U** creates a rig/snare at the mouse pointer.
+A long-range ancient mage build. It uses the uploaded pixel staff sprite. Its normal **tap K** projectile has been nerfed from 11 damage to 5 damage, while the held beam is still useful for long-range pressure.
 
 ## Features
 
 - Ability selection screen before the level starts
+- Thousand-Year Mage with the custom pixel staff sprite
 - Each build has unique color, melee shape, projectile behavior, and beam behavior
 - Side-scrolling platformer camera
 - Bigger map with many platforms
@@ -73,6 +74,7 @@ A long-range build. Its **J** hitbox appears far forward from the player, and it
 - Key reward after 3 kills
 - Locked door at the end of the level
 - Door only opens if you have the key and all enemies are defeated
+- Door and NPC do not appear in the boss arena
 - Player health, lives, respawn shield, and energy bar
 - Ranged projectile with **tap K**
 - Connected ranged beam variant with **hold K**
@@ -100,6 +102,8 @@ Inside `index.html`, try changing:
 - Key requirement: `enemyKills >= 3`
 - Boss health: `health: 360`
 - Build moves and beam settings: the `abilitySets` object
+- Mage projectile damage: `projectileDamage: 5`
+- Staff image: `staffImage.src`
 - Boss special cooldown: `specialCooldown: 260`
 - Beam clash duration: `clashTimer = 360`
-- Platform positions: the `platforms` array
+- Platform positions: the `levelPlatforms` and `bossPlatforms` arrays
