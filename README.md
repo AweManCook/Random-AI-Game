@@ -4,7 +4,18 @@ A beginner-friendly one-file JavaScript Canvas platform fighter prototype.
 
 ## Game
 
-This is now a scrolling 2D platformer fighting game prototype with enemy waves, regeneration, respawning, a bigger map, a boss transition, a boss special inside-battle beam clash, and a player ability selection screen.
+This is now a scrolling 2D platformer fighting game prototype with unique character builds, enemy waves, regeneration, an NPC/key objective, a locked boss door, a boss transition, and a boss special inside-battle beam clash.
+
+## Main objective
+
+1. Defeat at least **3 enemies**.
+2. Find the **Guide NPC** halfway through the map.
+3. Press **E** near the NPC to get the key.
+4. Defeat **all remaining enemies**.
+5. Go to the end door.
+6. Press **E** to unlock the door and enter the boss fight.
+
+The key cannot open the door until every enemy is defeated.
 
 ### Controls
 
@@ -12,9 +23,10 @@ This is now a scrolling 2D platformer fighting game prototype with enemy waves, 
 - **D**: Move right
 - **W**: Jump
 - **J**: Main melee attack
-- **U**: Alternate melee ability
+- **U**: Special/alternate melee ability
 - **Tap K**: Ranged projectile
 - **Hold K**: Ranged beam variant
+- **E**: Talk to NPC / open door
 - **K during beam clash**: Mash to push the beam back
 - **1 / 2 / 3**: Choose ability set on the selection screen
 - **Enter**: Start after choosing an ability set
@@ -23,35 +35,49 @@ This is now a scrolling 2D platformer fighting game prototype with enemy waves, 
 
 ### 1. Basic Fighter
 
-Balanced slash, quick projectile, and steady beam.
+- **J**: Forward Slash
+- **U**: Surround Burst
+- **Tap K**: Blue Bolt
+- **Hold K**: Balanced Beam
+
+A balanced build with medium projectile range, medium beam width, and solid damage.
 
 ### 2. Burst Striker
 
-More aggressive close-range damage and a wider beam.
+- **J**: Heavy Forward Cleave
+- **U**: Explosive Surround Slam
+- **Tap K**: Red Bomb Shot
+- **Hold K**: Wide Burst Beam
+
+A close-range aggressive build with heavier damage, shorter projectile range, and a wide red beam.
 
 ### 3. Control Caster
 
-Safer range, wider control tools, and a thinner piercing-style beam.
+- **J**: Far Puppet Stab
+- **U**: Mouse Rig Snare
+- **Tap K**: Twin Violet Needles
+- **Hold K**: Thin Piercing Ray
+
+A long-range build. Its **J** hitbox appears far forward from the player, and its **U** creates a rig/snare at the mouse pointer.
 
 ## Features
 
-- One player character represented by a colored rectangle
 - Ability selection screen before the level starts
+- Each build has unique color, melee shape, projectile behavior, and beam behavior
 - Side-scrolling platformer camera
 - Bigger map with many platforms
 - Multiple enemies with different types: normal, fast, and tank
-- Enemies now have less health than before
-- Enemy fighting AI that can chase, jump, melee, and shoot
-- Stronger constant player regeneration
-- Slower enemy and boss regeneration
-- Player health, lives, respawn timer, respawn shield, and energy bar
-- Main melee attack with **J**
-- Alternate melee ability with **U**
+- Lower enemy health than earlier versions
+- Stronger player regeneration
+- NPC halfway through the map
+- Key reward after 3 kills
+- Locked door at the end of the level
+- Door only opens if you have the key and all enemies are defeated
+- Player health, lives, respawn shield, and energy bar
 - Ranged projectile with **tap K**
 - Connected ranged beam variant with **hold K**
-- Visual beam effect with glow, core, particles, and screen shake
-- Boss battle after reaching the far side or surviving long enough
-- Boss melee, boss projectile, and boss special attack
+- Beam effects with glow, core, particles, and screen shake
+- Boss battle after the door opens
 - Boss special cutscene into an inside-battle beam clash
 - Win/lose states and restart button
 
@@ -65,12 +91,15 @@ Inside `index.html`, try changing:
 
 - World width: `width: 3800`
 - Player speed: `speed: 1.18`
-- Player health: `health: 125`
+- Player health: `health: 130`
 - Number of lives: `lives: 3`
 - Enemy health: the `health` values inside `makeEnemy()`
 - Enemy list: the `spawnEnemies()` function
+- NPC position: the `npc` object
+- Door position: the `door` object
+- Key requirement: `enemyKills >= 3`
 - Boss health: `health: 360`
-- Beam settings: the `abilitySets` object
+- Build moves and beam settings: the `abilitySets` object
 - Boss special cooldown: `specialCooldown: 260`
 - Beam clash duration: `clashTimer = 360`
 - Platform positions: the `platforms` array
