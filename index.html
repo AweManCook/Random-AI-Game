@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Platform Fighter Prototype V5</title>
+  <title>Platform Fighter Prototype V5.1</title>
   <style>
     body { margin:0; background:#171b22; color:white; font-family:Arial,sans-serif; text-align:center; }
     h1 { margin:12px 0 4px; }
@@ -12,21 +12,17 @@
   </style>
 </head>
 <body>
-  <h1>Scrolling Platform Fighter V5</h1>
+  <h1>Scrolling Platform Fighter V5.1</h1>
   <p>A/D move | W jump | J melee | U special melee | tap K projectile | hold K beam | E talk/open</p>
   <canvas id="gameCanvas" width="900" height="500"></canvas>
   <button id="restartButton">Restart Game</button>
 
   <script>
     /*
-      V5 goals:
-      - Each selected character/build now feels different.
-      - J and U are no longer all the same.
-      - Control Caster J is a far-forward hitbox.
-      - Control Caster U creates a long-range rig at the mouse pointer.
-      - K projectile and hold-K beam differ by color, damage, range, and width.
-      - NPC gives you a key after 3 kills.
-      - Door at the end only opens if you have the key AND all enemies are dead.
+      V5.1 fixes:
+      - Door and NPC no longer appear in the boss arena.
+      - Boss arena now has its own bright sky-island / fantasy-platform look.
+      - Inspired by huge open JRPG-style arenas, but original/simple Canvas art.
     */
 
     const canvas = document.getElementById("gameCanvas");
@@ -105,11 +101,18 @@
     };
 
     const platforms = [
-      { x:0, y:450, width:3800, height:50 },
+      { x:0, y:450, width:3800, height:50, kind:"ground" },
       { x:180, y:330, width:260, height:24 }, { x:600, y:270, width:250, height:24 },
       { x:1020, y:350, width:300, height:24 }, { x:1480, y:300, width:260, height:24 },
       { x:1880, y:240, width:250, height:24 }, { x:2260, y:350, width:300, height:24 },
       { x:2700, y:295, width:260, height:24 }, { x:3180, y:340, width:280, height:24 }
+    ];
+
+    const bossPlatforms = [
+      { x:2920, y:450, width:900, height:50, kind:"bossGround" },
+      { x:3030, y:335, width:230, height:22, kind:"boss" },
+      { x:3320, y:292, width:250, height:22, kind:"boss" },
+      { x:3600, y:350, width:190, height:22, kind:"boss" }
     ];
 
     const npc = { x: 1880, y: 178, width: 42, height: 62, color: "#ffd166" };
@@ -146,6 +149,8 @@
     function allEnemiesDead(){ return livingEnemies() === 0; }
     function dist(a,b){ return Math.abs((a.x+a.width/2) - (b.x+b.width/2)); }
     function say(text, frames=240){ speech = text; speechTimer = frames; }
+    function inBossArena(){ return gameState === "boss" || gameState === "bossCutscene" || gameState === "clash" || boss.active; }
+    function activePlatforms(){ return inBossArena() ? bossPlatforms : platforms; }
 
     function makeEnemy(x,y,type="grunt"){
       const fast = type === "fast";
@@ -174,7 +179,7 @@
     function applyPhysics(obj){
       obj.vy += gravity; obj.x += obj.vx; obj.x = clamp(obj.x, 0, world.width - obj.width);
       obj.y += obj.vy; obj.onGround = false;
-      for(const p of platforms){ if(rects(obj,p) && obj.vy >= 0){ obj.y = p.y - obj.height; obj.vy = 0; obj.onGround = true; } }
+      for(const p of activePlatforms()){ if(rects(obj,p) && obj.vy >= 0){ obj.y = p.y - obj.height; obj.vy = 0; obj.onGround = true; } }
       if(obj.y > 700){ if(obj === player) damagePlayer(999); else { obj.x -= 160; obj.y = 200; obj.vx = 0; obj.vy = 0; } }
     }
 
@@ -294,7 +299,7 @@
     }
 
     function updateEnemyAI(e){
-      if(e.defeated) return;
+      if(e.defeated || inBossArena()) return;
       const dx = (player.x+player.width/2) - (e.x+e.width/2); const dy = (player.y+player.height/2) - (e.y+e.height/2); const d = Math.abs(dx);
       e.facing = dx >= 0 ? 1 : -1; if(Math.abs(e.x - player.x) > 720) return;
       if(d > 58) e.vx += e.speed * e.facing; else e.vx *= 0.7;
@@ -350,12 +355,13 @@
     }
 
     function updateNpcAndDoor(){
+      if(inBossArena()) return;
       const nearNpc = dist(player,npc) < 95 && Math.abs(player.y - npc.y) < 110;
       const nearDoor = dist(player,door) < 100;
       const ePressed = keys.e && !lastEDown;
       if(nearNpc && !npcGaveKey){
-        if(enemyKills >= 3){ say("Guide: You defeated 3 enemies. Take this key. But the door accepts it only after all enemies are gone."); if(ePressed){ hasKey = true; npcGaveKey = true; say("Key obtained! Now defeat every remaining enemy."); } }
-        else say("Guide: Defeat 3 enemies, then press E near me for the key. Kills: " + enemyKills + "/3", 60);
+        if(enemyKills >= 3){ say("Guide: You defeated 3 enemies. Press E to take the key."); if(ePressed){ hasKey = true; npcGaveKey = true; say("Key obtained! Now defeat every remaining enemy."); } }
+        else say("Guide: Defeat 3 enemies, then press E near me. Kills: " + enemyKills + "/3", 60);
       }
       if(nearDoor){
         if(!hasKey) say("Door: Locked. Find the Guide and earn the key.", 60);
@@ -367,7 +373,7 @@
     }
 
     function updateCamera(){
-      const target = gameState === "boss" || gameState === "bossCutscene" || gameState === "clash" ? 2950 : player.x - canvas.width/2;
+      const target = inBossArena() ? 2950 : player.x - canvas.width/2;
       cameraX += (clamp(target,0,world.width-canvas.width) - cameraX) * 0.09;
       mouse.worldX = mouse.x + cameraX;
     }
@@ -377,18 +383,58 @@
       if(screenShake > 0) screenShake--; if(speechTimer > 0) speechTimer--;
     }
 
-    function drawBackground(){
-      ctx.fillStyle = gameState === "clash" ? "#140020" : "#7fc7ff"; ctx.fillRect(0,0,canvas.width,canvas.height);
-      if(gameState !== "clash"){
-        ctx.fillStyle = "#ffd166"; ctx.beginPath(); ctx.arc(790,80,35,0,Math.PI*2); ctx.fill();
-        ctx.fillStyle = "#6fcf97"; for(let x=-200; x<world.width; x+=520){ ctx.beginPath(); ctx.arc(screenX(x),470,180,Math.PI,0); ctx.fill(); }
+    function drawLevelBackground(){
+      ctx.fillStyle = "#7fc7ff"; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = "#ffd166"; ctx.beginPath(); ctx.arc(790,80,35,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle = "#6fcf97"; for(let x=-200; x<world.width; x+=520){ ctx.beginPath(); ctx.arc(screenX(x),470,180,Math.PI,0); ctx.fill(); }
+    }
+
+    function drawBossBackground(){
+      const g = ctx.createLinearGradient(0,0,0,canvas.height);
+      g.addColorStop(0,"#63d8ff"); g.addColorStop(.45,"#bdf6ff"); g.addColorStop(1,"#f9f3d2");
+      ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = "rgba(255,255,255,.72)";
+      for(let i=0;i<7;i++){ const x = (i*170 + levelTimer*.25) % 1100 - 120; ctx.beginPath(); ctx.ellipse(x,95+i%3*38,70,22,0,0,Math.PI*2); ctx.fill(); }
+      // Distant fantasy pillars / monoliths.
+      for(let i=0;i<5;i++){
+        const x = screenX(2920 + i*190);
+        ctx.fillStyle = "rgba(120,130,190,.35)"; ctx.fillRect(x,135+(i%2)*30,32,270);
+        ctx.fillStyle = "rgba(255,255,255,.5)"; ctx.fillRect(x+8,135+(i%2)*30,6,260);
+      }
+      // Floating islands behind arena.
+      for(let i=0;i<4;i++){
+        const x = screenX(2860 + i*260);
+        ctx.fillStyle = "rgba(77,165,120,.45)"; ctx.beginPath(); ctx.ellipse(x,370-(i%2)*50,115,28,0,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle = "rgba(85,55,35,.45)"; ctx.beginPath(); ctx.moveTo(x-70,375-(i%2)*50); ctx.lineTo(x+70,375-(i%2)*50); ctx.lineTo(x,425-(i%2)*50); ctx.closePath(); ctx.fill();
+      }
+      // Arena energy ring.
+      ctx.strokeStyle = "rgba(0,245,212,.45)"; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.ellipse(screenX(3370),430,390,42,0,0,Math.PI*2); ctx.stroke();
+    }
+
+    function drawBackground(){ if(inBossArena()) drawBossBackground(); else drawLevelBackground(); }
+
+    function drawPlatforms(){
+      for(const p of activePlatforms()){
+        if(screenX(p.x+p.width)<-50 || screenX(p.x)>canvas.width+50) continue;
+        if(p.kind === "boss" || p.kind === "bossGround"){
+          ctx.fillStyle = "rgba(245,255,255,.9)"; ctx.fillRect(screenX(p.x),p.y,p.width,p.height);
+          ctx.fillStyle = "#61d394"; ctx.fillRect(screenX(p.x),p.y,p.width,7);
+          ctx.strokeStyle = "#30bced"; ctx.lineWidth = 2; ctx.strokeRect(screenX(p.x),p.y,p.width,p.height);
+          ctx.fillStyle = "rgba(48,188,237,.28)"; ctx.fillRect(screenX(p.x)+8,p.y+p.height,p.width-16,12);
+        } else {
+          ctx.fillStyle="#5b3b22"; ctx.fillRect(screenX(p.x),p.y,p.width,p.height);
+          ctx.fillStyle="#3fa34d"; ctx.fillRect(screenX(p.x),p.y,p.width,6);
+          ctx.strokeStyle="black"; ctx.strokeRect(screenX(p.x),p.y,p.width,p.height);
+        }
       }
     }
-    function drawPlatforms(){ for(const p of platforms){ if(screenX(p.x+p.width)<-50 || screenX(p.x)>canvas.width+50) continue; ctx.fillStyle="#5b3b22"; ctx.fillRect(screenX(p.x),p.y,p.width,p.height); ctx.fillStyle="#3fa34d"; ctx.fillRect(screenX(p.x),p.y,p.width,6); ctx.strokeStyle="black"; ctx.strokeRect(screenX(p.x),p.y,p.width,p.height); } }
+
     function drawRect(obj){ if(obj===player && invincibleTimer>0 && Math.floor(invincibleTimer/6)%2===0) return; ctx.fillStyle=obj.color; ctx.fillRect(screenX(obj.x),obj.y,obj.width,obj.height); ctx.strokeStyle="black"; ctx.lineWidth=2; ctx.strokeRect(screenX(obj.x),obj.y,obj.width,obj.height); ctx.fillStyle="white"; ctx.font="19px Arial"; ctx.fillText(obj.facing===1?">":"<",screenX(obj.x)+obj.width/2-5,obj.y+36); }
     function drawBar(x,y,w,h,hp,max,label,color="#2ecc71"){ ctx.fillStyle="#333"; ctx.fillRect(x,y,w,h); ctx.fillStyle=color; ctx.fillRect(x,y,w*clamp(hp/max,0,1),h); ctx.strokeStyle="white"; ctx.strokeRect(x,y,w,h); ctx.fillStyle="white"; ctx.font="15px Arial"; ctx.fillText(label+": "+Math.max(0,Math.floor(hp)),x,y-5); }
 
     function drawNpcDoor(){
+      if(inBossArena()) return;
       ctx.fillStyle = npcGaveKey ? "#c0c0c0" : npc.color; ctx.fillRect(screenX(npc.x),npc.y,npc.width,npc.height); ctx.strokeStyle="black"; ctx.strokeRect(screenX(npc.x),npc.y,npc.width,npc.height); ctx.fillStyle="black"; ctx.font="13px Arial"; ctx.fillText("NPC",screenX(npc.x)+6,npc.y+35);
       ctx.fillStyle = doorOpen ? "rgba(0,245,212,.35)" : hasKey && allEnemiesDead() ? "#00f5d4" : "#4b2e18"; ctx.fillRect(screenX(door.x),door.y,door.width,door.height); ctx.strokeStyle="white"; ctx.lineWidth=3; ctx.strokeRect(screenX(door.x),door.y,door.width,door.height); ctx.fillStyle="white"; ctx.font="14px Arial"; ctx.fillText("DOOR",screenX(door.x)+12,door.y+64);
       if(hasKey){ ctx.fillStyle="#ffd166"; ctx.fillRect(790,82,22,12); ctx.fillStyle="white"; ctx.font="14px Arial"; ctx.fillText("Key",818,94); }
@@ -410,27 +456,29 @@
 
     function drawHud(){
       const a=currentAbility(); drawBar(25,35,235,20,player.health,player.maxHealth,"Player"); drawBar(25,72,180,14,player.energy,player.maxEnergy,"Energy",a.aura);
-      ctx.fillStyle="white"; ctx.font="16px Arial"; ctx.fillText("Lives: "+player.lives,25,115); ctx.fillText("Build: "+a.name,25,138); ctx.fillText("Kills: "+enemyKills+" | Enemies left: "+livingEnemies(),25,160);
+      ctx.fillStyle="white"; ctx.font="16px Arial"; ctx.fillText("Lives: "+player.lives,25,115); ctx.fillText("Build: "+a.name,25,138);
+      if(!inBossArena()) ctx.fillText("Kills: "+enemyKills+" | Enemies left: "+livingEnemies(),25,160);
       if(boss.active) drawBar(560,35,300,22,boss.health,boss.maxHealth,"Boss","#c77dff"); else ctx.fillText("Objective: get key, clear enemies, open door",530,50);
-      if(speechTimer>0){ ctx.fillStyle="rgba(0,0,0,.62)"; ctx.fillRect(235,92,430,52); ctx.fillStyle="white"; ctx.font="15px Arial"; ctx.fillText(speech,250,123); }
+      if(speechTimer>0 && !inBossArena()){ ctx.fillStyle="rgba(0,0,0,.62)"; ctx.fillRect(235,92,430,52); ctx.fillStyle="white"; ctx.font="15px Arial"; ctx.fillText(speech,250,123); }
       if(beamActive){ ctx.font="18px Arial"; ctx.fillText(a.beamName + " ACTIVE",360,85); }
+      if(inBossArena()){ ctx.fillStyle="rgba(0,0,0,.45)"; ctx.fillRect(305,455,290,28); ctx.fillStyle="white"; ctx.font="15px Arial"; ctx.fillText("Boss Arena: floating sky ruins",342,474); }
     }
 
     function drawLevel(){
       const shakeX=screenShake>0?(Math.random()-.5)*screenShake*2:0, shakeY=screenShake>0?(Math.random()-.5)*screenShake*2:0;
-      ctx.save(); ctx.translate(shakeX,shakeY); drawBackground(); drawPlatforms(); drawNpcDoor(); drawHitboxes(); drawBeam(); drawParticles(); drawProjectiles(); if(respawnTimer<=0) drawRect(player); for(const e of enemies) if(!e.defeated) drawRect(e); if(boss.active&&!boss.defeated) drawRect(boss); ctx.restore();
+      ctx.save(); ctx.translate(shakeX,shakeY); drawBackground(); drawPlatforms(); drawNpcDoor(); drawHitboxes(); drawBeam(); drawParticles(); drawProjectiles(); if(respawnTimer<=0) drawRect(player); if(!inBossArena()) for(const e of enemies) if(!e.defeated) drawRect(e); if(boss.active&&!boss.defeated) drawRect(boss); ctx.restore();
       drawHud(); ctx.fillStyle="black"; ctx.font="15px Arial"; ctx.fillText("J = build-specific melee | U = surround/rig | tap K = projectile | hold K = unique beam | E = talk/open",150,485);
     }
 
-    function drawLoading(){ drawBackground(); ctx.fillStyle="rgba(0,0,0,.55)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="42px Arial"; ctx.fillText("Loading V5...",335,210); const fill=(70-loadingTimer)/70*360; ctx.fillStyle="#333"; ctx.fillRect(270,245,360,28); ctx.fillStyle="#00f5d4"; ctx.fillRect(270,245,fill,28); ctx.strokeStyle="white"; ctx.strokeRect(270,245,360,28); }
+    function drawLoading(){ drawBackground(); ctx.fillStyle="rgba(0,0,0,.55)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="42px Arial"; ctx.fillText("Loading V5.1...",315,210); const fill=(70-loadingTimer)/70*360; ctx.fillStyle="#333"; ctx.fillRect(270,245,360,28); ctx.fillStyle="#00f5d4"; ctx.fillRect(270,245,fill,28); ctx.strokeStyle="white"; ctx.strokeRect(270,245,360,28); }
     function wrapText(text,x,y,maxWidth,lineHeight){ const words=text.split(" "); let line=""; for(const word of words){ const test=line+word+" "; if(ctx.measureText(test).width>maxWidth){ ctx.fillText(line,x,y); line=word+" "; y+=lineHeight; } else line=test; } ctx.fillText(line,x,y); }
     function drawSelection(){
-      drawBackground(); ctx.fillStyle="rgba(0,0,0,.58)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="36px Arial"; ctx.fillText("Choose Your Character",270,72);
+      drawLevelBackground(); ctx.fillStyle="rgba(0,0,0,.58)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="36px Arial"; ctx.fillText("Choose Your Character",270,72);
       const cards=[["1","basic",70],["2","burst",335],["3","control",600]];
       for(const [num,key,x] of cards){ const a=abilitySets[key]; ctx.fillStyle=selectedAbility===key?"rgba(0,245,212,.35)":"rgba(255,255,255,.16)"; ctx.fillRect(x,115,230,275); ctx.strokeStyle=selectedAbility===key?a.aura:"white"; ctx.lineWidth=3; ctx.strokeRect(x,115,230,275); ctx.fillStyle=a.color; ctx.fillRect(x+18,145,34,54); ctx.fillStyle="white"; ctx.font="24px Arial"; ctx.fillText(num+". "+a.name,x+60,170); ctx.font="15px Arial"; wrapText(a.desc,x+18,225,190,18); ctx.fillText("J: "+a.jName,x+18,295); ctx.fillText("U: "+a.uName,x+18,318); ctx.fillText("tap K: "+a.kName,x+18,341); ctx.fillText("hold K: "+a.beamName,x+18,364); }
       ctx.font="21px Arial"; ctx.fillText("Press 1, 2, or 3. Press Enter to start.",265,430);
     }
-    function drawTransition(){ drawLevel(); ctx.fillStyle="rgba(0,0,0,.65)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="34px Arial"; ctx.fillText("The locked door opens...",265,190); ctx.font="20px Arial"; ctx.fillText("A boss pulls you into a final stage.",300,230); }
+    function drawTransition(){ drawLevel(); ctx.fillStyle="rgba(0,0,0,.65)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="34px Arial"; ctx.fillText("The locked door opens...",265,190); ctx.font="20px Arial"; ctx.fillText("A sky arena forms beyond the gate.",300,230); }
     function drawBossCutscene(){ drawLevel(); ctx.fillStyle="rgba(20,0,30,.72)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="#c77dff"; ctx.font="36px Arial"; ctx.fillText("BOSS SPECIAL: INNER TRIAL",230,180); ctx.fillStyle="white"; ctx.font="20px Arial"; ctx.fillText("The fight pauses. A beam clash is about to start.",250,225); ctx.fillText("Mash K during the clash to push back!",285,255); }
     function drawClash(){ ctx.fillStyle="#140020"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="32px Arial"; ctx.fillText("INSIDE BATTLE: BEAM CLASH",240,90); ctx.font="19px Arial"; ctx.fillText("Mash K to push the beam to the boss side before time runs out!",205,125); ctx.fillStyle="rgba(0,245,212,.35)"; ctx.fillRect(90,226,clashPower*7.2,66); ctx.fillStyle="rgba(199,125,255,.35)"; ctx.fillRect(90+clashPower*7.2,226,(100-clashPower)*7.2,66); ctx.fillStyle=currentAbility().beamColor; ctx.fillRect(90,248,clashPower*7.2,24); ctx.fillStyle="#c77dff"; ctx.fillRect(90+clashPower*7.2,248,(100-clashPower)*7.2,24); ctx.fillStyle="white"; ctx.fillRect(90+clashPower*7.2-8,238,16,44); ctx.strokeStyle="white"; ctx.lineWidth=3; ctx.strokeRect(90,226,720,66); ctx.fillStyle="white"; ctx.font="22px Arial"; ctx.fillText("Time: "+Math.ceil(clashTimer/60),405,335); }
     function drawEnd(){ drawLevel(); ctx.fillStyle="rgba(0,0,0,.65)"; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.fillStyle="white"; ctx.font="38px Arial"; ctx.fillText(message,260,215); }
