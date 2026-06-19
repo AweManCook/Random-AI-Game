@@ -4,7 +4,7 @@ A beginner-friendly one-file JavaScript Canvas platform fighter prototype.
 
 ## Game
 
-This is a simple 2D platformer fighting game prototype with melee attacks, ranged attacks, enemy AI, respawning, and a loading screen.
+This is now a scrolling 2D platformer fighting game prototype with enemy waves, regeneration, respawning, a bigger map, a boss transition, and a boss special that starts an inside-battle beam clash minigame.
 
 ### Controls
 
@@ -13,22 +13,24 @@ This is a simple 2D platformer fighting game prototype with melee attacks, range
 - **W**: Jump
 - **J**: Melee attack
 - **K**: Ranged attack
+- **K during beam clash**: Mash to push the beam back
 
 ## Features
 
 - One player character represented by a colored rectangle
-- Faster movement than the first prototype
-- Gravity and platform collision
-- Short melee hitbox in front of the player
-- Ranged projectile attack with **K**
-- Enemy training bot with health
+- Side-scrolling platformer camera
+- Bigger map with many platforms
+- Multiple enemies with different types: normal, fast, and tank
 - Enemy fighting AI that can chase, jump, melee, and shoot
-- Enemy damage and knockback
+- Slow constant player regeneration
+- Slow constant enemy and boss regeneration
 - Player health, lives, respawn timer, and respawn shield
-- Health bars for player and enemy
-- Simple arena with a floor and two platforms
-- Loading screen before each match
-- Restart button after winning or losing
+- Ranged projectile attack with **K**
+- Melee attack with **J**
+- Boss battle after reaching the far side or surviving long enough
+- Boss melee, boss projectile, and boss special attack
+- Boss special cutscene into an inside-battle beam clash
+- Win/lose states and restart button
 
 ## How to play locally
 
@@ -38,11 +40,13 @@ Download or clone the repo, then open `index.html` in a browser.
 
 Inside `index.html`, try changing:
 
-- Player speed: `speed: 1.15`
+- World width: `width: 3800`
+- Player speed: `speed: 1.18`
 - Player max speed: `maxSpeed: 8.5`
-- Enemy health: `health: 140`
-- Melee damage: `enemy.health -= 22`
-- Ranged damage: `damage: owner === "player" ? 14 : 10`
-- Jump strength: `jumpPower: -14.5`
-- Number of lives: `let playerLives = 3`
+- Player health: `health: 110`
+- Number of lives: `lives: 3`
+- Enemy list: the `spawnEnemies()` function
+- Boss health: `health: 450`
+- Boss special cooldown: `specialCooldown: 260`
+- Beam clash duration: `clashTimer = 360`
 - Platform positions: the `platforms` array
